@@ -1,0 +1,20 @@
+# 引擎/工具目录（只读，非用户代码）
+engine-docs/
+examples/
+templates/
+urhox-libs/
+schemas/
+prompts/
+lua-tools/
+.emmylua/
+.claude/
+.project/
+.tmp/
+.build/
+dist/
+logs/
+node_modules/
+
+# 系统文件
+.DS_Store
+*.meta

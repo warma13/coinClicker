@@ -2,6 +2,7 @@
 -- ui/BuildingLevelPanel.lua
 -- 产业等级升级面板（全屏覆盖式弹窗）
 -- 使用人脉升级产业等级，每级 +1% CpS
+-- 使用 VirtualList 虚拟化列表
 -- 使用 AddChild/RemoveChild 控制显隐
 -- ============================================================================
 
@@ -15,7 +16,7 @@ local BLP = {}
 -- ======== 引用 ========
 local uiRoot_ = nil
 local panel_ = nil
-local listContainer_ = nil
+local virtualList_ = nil
 local infoLabel_ = nil
 local infoCountLabel_ = nil
 local infoBonusLabel_ = nil
@@ -26,9 +27,244 @@ local sugarLumpManager_ = nil
 local onUpgrade_ = nil         -- function(buildingIndex)
 
 -- ======== 增量刷新缓存 ========
-local rowCache_ = {}            -- rowCache_[bi] = { row, levelLabel, bonusLabel, statusLabel, dots, lastFP }
 local lastInfoText_ = ""
-local initialized_ = false
+local lastDataFP_ = ""
+
+-- ======== 行常量 ========
+local ROW_HEIGHT = 56
+
+-- ======== 扁平化数据 ========
+-- flatData_[i] = { bi, building, level, cost, lumps, isMaxed, hasBuilding, canAfford }
+local flatData_ = {}
+
+-- ============================================================================
+-- 重建扁平数据
+-- ============================================================================
+
+local function RebuildFlatData()
+    flatData_ = {}
+    if not sugarLumpManager_ then return end
+    local lumps = sugarLumpManager_.GetLumps()
+    for bi, building in ipairs(Buildings.buildings) do
+        local level = sugarLumpManager_.GetBuildingLevel(bi)
+        local maxLevel = SD.MAX_BUILDING_LEVEL
+        local cost = sugarLumpManager_.GetUpgradeCost(bi)
+        local isMaxed = level >= maxLevel
+        local hasBuilding = building.count > 0
+        local canAfford = lumps >= cost
+        flatData_[#flatData_ + 1] = {
+            bi = bi,
+            building = building,
+            level = level,
+            cost = cost,
+            lumps = lumps,
+            isMaxed = isMaxed,
+            hasBuilding = hasBuilding,
+            canAfford = canAfford,
+        }
+    end
+end
+
+-- ============================================================================
+-- VirtualList createItem / bindItem
+-- ============================================================================
+
+local function CreateRowWidget()
+    -- 建筑图标
+    local iconPanel = UI.Panel {
+        width = 30, height = 30,
+        backgroundFit = "contain",
+    }
+
+    -- 名称
+    local nameLabel = UI.Label { text = "", fontSize = 13 }
+    -- 等级
+    local levelLabel = UI.Label { text = "", fontSize = 11 }
+
+    -- 等级圆点容器
+    local dotsContainer = UI.Panel {
+        flexDirection = "row", alignItems = "center",
+    }
+    -- 预创建 MAX_BUILDING_LEVEL 个圆点
+    local dots = {}
+    for lv = 1, SD.MAX_BUILDING_LEVEL do
+        local dot = UI.Panel {
+            width = 8, height = 8,
+            borderRadius = 4,
+            backgroundColor = { 50, 40, 60, 200 },
+            marginRight = 2,
+        }
+        dotsContainer:AddChild(dot)
+        dots[lv] = dot
+    end
+
+    -- 加成文字
+    local bonusLabel = UI.Label { text = "", fontSize = 12,
+        fontColor = { 100, 255, 100, 220 },
+        textAlign = "right", width = 50 }
+
+    -- 状态区域：放一个容器，bindItem 时填充
+    local statusContainer = UI.Panel {
+        alignItems = "flex-end",
+    }
+
+    -- 行容器
+    local row = UI.Panel {
+        width = "100%", height = ROW_HEIGHT,
+        flexDirection = "row", alignItems = "center",
+        padding = 8, gap = 6, borderRadius = 6, borderWidth = 1,
+        backgroundColor = { 35, 30, 45, 255 },
+        borderColor = { 80, 60, 100, 120 },
+        children = {
+            iconPanel,
+            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
+                UI.Panel { flexDirection = "row", alignItems = "center", gap = 4, children = {
+                    nameLabel,
+                    levelLabel,
+                }},
+                dotsContainer,
+            }},
+            UI.Panel { alignItems = "flex-end", gap = 4, children = {
+                bonusLabel,
+                statusContainer,
+            }},
+        },
+    }
+
+    row._iconPanel = iconPanel
+    row._nameLabel = nameLabel
+    row._levelLabel = levelLabel
+    row._dots = dots
+    row._bonusLabel = bonusLabel
+    row._statusContainer = statusContainer
+    row._lastStatusType = nil  -- "none" | "maxed" | "cost" | "unavail"
+
+    return row
+end
+
+local function BindRowWidget(widget, data, index)
+    local building = data.building
+    local level = data.level
+    local isMaxed = data.isMaxed
+    local hasBuilding = data.hasBuilding
+    local canAfford = data.canAfford
+    local cost = data.cost
+    local bi = data.bi
+
+    -- 背景色
+    local bgColor, borderColor
+    if not hasBuilding then
+        bgColor = { 25, 25, 30, 200 }
+        borderColor = { 40, 40, 50, 100 }
+    elseif isMaxed then
+        bgColor = { 30, 50, 35, 255 }
+        borderColor = { 80, 180, 80, 120 }
+    elseif canAfford then
+        bgColor = { 55, 40, 60, 255 }
+        borderColor = { 200, 150, 255, 200 }
+    else
+        bgColor = { 35, 30, 45, 255 }
+        borderColor = { 80, 60, 100, 120 }
+    end
+
+    widget:SetStyle({
+        backgroundColor = bgColor,
+        borderColor = borderColor,
+        opacity = hasBuilding and 1.0 or 0.35,
+    })
+
+    -- 图标
+    widget._iconPanel:SetStyle({ backgroundImage = building.iconImage })
+
+    -- 名称
+    widget._nameLabel:SetText(building.name)
+    widget._nameLabel:SetFontColor(isMaxed and { 100, 200, 100, 255 } or { 220, 210, 240, 255 })
+
+    -- 等级
+    widget._levelLabel:SetText("Lv." .. level)
+    widget._levelLabel:SetFontColor(level > 0
+        and { 255, 215, 0, 220 }
+        or  { 100, 100, 120, 160 })
+
+    -- 等级圆点
+    for lv = 1, SD.MAX_BUILDING_LEVEL do
+        local dot = widget._dots[lv]
+        if dot then
+            dot:SetStyle({
+                backgroundColor = lv <= level
+                    and { 255, 215, 0, 255 }
+                    or  { 50, 40, 60, 200 },
+            })
+        end
+    end
+
+    -- 加成
+    local bonusText = level > 0 and ("+" .. level .. "%") or ""
+    widget._bonusLabel:SetText(bonusText)
+
+    -- 状态区域：根据状态类型重建子元素
+    local statusType
+    if not hasBuilding then
+        statusType = "unavail"
+    elseif isMaxed then
+        statusType = "maxed"
+    else
+        statusType = "cost:" .. (canAfford and "Y" or "N")
+    end
+
+    -- 仅当状态类型改变时重建
+    if statusType ~= widget._lastStatusType then
+        widget._lastStatusType = statusType
+        widget._statusContainer:RemoveAllChildren()
+
+        if not hasBuilding then
+            widget._statusContainer:AddChild(
+                UI.Label { text = "未拥有", fontSize = 10,
+                    fontColor = { 120, 120, 140, 160 }, textAlign = "right" }
+            )
+        elseif isMaxed then
+            widget._statusContainer:AddChild(
+                UI.Panel {
+                    flexDirection = "row", alignItems = "center", justifyContent = "center",
+                    paddingLeft = 6, paddingRight = 6, paddingTop = 3, paddingBottom = 3,
+                    borderRadius = 6,
+                    backgroundColor = { 40, 70, 45, 200 },
+                    borderWidth = 1, borderColor = { 80, 180, 80, 120 },
+                    children = {
+                        UI.Label { text = "MAX", fontSize = 11,
+                            fontColor = { 100, 200, 100, 200 }, textAlign = "center" },
+                    },
+                }
+            )
+        else
+            local idx = bi
+            widget._statusContainer:AddChild(
+                UI.Panel {
+                    flexDirection = "row", alignItems = "center", justifyContent = "center",
+                    paddingLeft = 6, paddingRight = 8, paddingTop = 3, paddingBottom = 3,
+                    borderRadius = 6, gap = 4,
+                    backgroundColor = canAfford and { 80, 50, 120, 255 } or { 50, 45, 60, 200 },
+                    borderWidth = 1,
+                    borderColor = canAfford and { 180, 130, 255, 200 } or { 70, 60, 90, 120 },
+                    pointerEvents = canAfford and "auto" or "none",
+                    onPointerDown = canAfford and function()
+                        if onUpgrade_ then
+                            onUpgrade_(idx)
+                            BLP.Refresh()
+                        end
+                    end or nil,
+                    children = {
+                        UI.Panel { width = 18, height = 18,
+                            backgroundImage = "image/人脉.png", backgroundFit = "contain",
+                            opacity = canAfford and 1.0 or 0.4 },
+                        UI.Label { text = tostring(cost), fontSize = 12,
+                            fontColor = { 255, 255, 255, 240 } },
+                    },
+                }
+            )
+        end
+    end
+end
 
 -- ============================================================================
 -- 内部：构建面板
@@ -68,10 +304,21 @@ local function BuildPanel()
         },
     }
 
-    listContainer_ = UI.Panel {
+    -- 计算屏幕高度作为 viewportHeight
+    local dpr = graphics:GetDPR()
+    local screenH = graphics:GetHeight() / dpr
+
+    virtualList_ = UI.VirtualList {
         width = "100%",
-        gap = 4,
-        paddingBottom = 20,
+        flex = 1,
+        data = {},
+        itemHeight = ROW_HEIGHT,
+        itemGap = 4,
+        viewportHeight = screenH,
+        poolBuffer = 3,
+        createItem = CreateRowWidget,
+        bindItem = BindRowWidget,
+        showScrollbar = false,
     }
 
     panel_ = UI.Panel {
@@ -100,254 +347,10 @@ local function BuildPanel()
             -- 信息标签
             infoLabel_,
 
-            -- 可滚动内容区
-            UI.ScrollView {
-                flex = 1,
-                width = "100%",
-                showScrollbar = false,
-                children = {
-                    listContainer_,
-                },
-            },
+            -- VirtualList 替代 ScrollView
+            virtualList_,
         },
     }
-end
-
--- ============================================================================
--- 构建建筑行（带缓存引用）
--- ============================================================================
-
-local function BuildBuildingRow(bi, building)
-    local level = sugarLumpManager_.GetBuildingLevel(bi)
-    local maxLevel = SD.MAX_BUILDING_LEVEL
-    local cost = sugarLumpManager_.GetUpgradeCost(bi)
-    local lumps = sugarLumpManager_.GetLumps()
-    local isMaxed = level >= maxLevel
-    local hasBuilding = building.count > 0
-    local canAfford = lumps >= cost
-
-    -- 背景色
-    local bgColor, borderColor
-    if not hasBuilding then
-        bgColor = { 25, 25, 30, 200 }
-        borderColor = { 40, 40, 50, 100 }
-    elseif isMaxed then
-        bgColor = { 30, 50, 35, 255 }
-        borderColor = { 80, 180, 80, 120 }
-    elseif canAfford then
-        bgColor = { 55, 40, 60, 255 }
-        borderColor = { 200, 150, 255, 200 }
-    else
-        bgColor = { 35, 30, 45, 255 }
-        borderColor = { 80, 60, 100, 120 }
-    end
-
-    -- 等级条（小圆点）
-    local levelDots = {}
-    local dotRefs = {}
-    for lv = 1, maxLevel do
-        local dot = UI.Panel {
-            width = 8, height = 8,
-            borderRadius = 4,
-            backgroundColor = lv <= level
-                and { 255, 215, 0, 255 }
-                or  { 50, 40, 60, 200 },
-            marginRight = 2,
-        }
-        levelDots[#levelDots + 1] = dot
-        dotRefs[lv] = dot
-    end
-
-    -- 加成文字
-    local bonusText = ""
-    if level > 0 then
-        bonusText = "+" .. level .. "%"
-    end
-
-    local clickable = hasBuilding and not isMaxed and canAfford
-
-    local levelLabel = UI.Label { text = "Lv." .. level, fontSize = 11,
-        fontColor = level > 0
-            and { 255, 215, 0, 220 }
-            or  { 100, 100, 120, 160 } }
-
-    local bonusLabel = UI.Label { text = bonusText, fontSize = 12,
-        fontColor = { 100, 255, 100, 220 },
-        textAlign = "right",
-        width = 50 }
-
-    -- 状态区域：按钮（图标+数字）或 纯文字
-    local statusLabel  -- 用于增量刷新时更新文字
-    local statusWidget -- 行内实际挂载的 widget
-    if not hasBuilding then
-        statusLabel = UI.Label { text = "未拥有", fontSize = 10,
-            fontColor = { 120, 120, 140, 160 }, textAlign = "right" }
-        statusWidget = statusLabel
-    elseif isMaxed then
-        statusLabel = UI.Label { text = "MAX", fontSize = 11,
-            fontColor = { 100, 200, 100, 200 }, textAlign = "center" }
-        statusWidget = UI.Panel {
-            flexDirection = "row", alignItems = "center", justifyContent = "center",
-            paddingLeft = 6, paddingRight = 6, paddingTop = 3, paddingBottom = 3,
-            borderRadius = 6,
-            backgroundColor = { 40, 70, 45, 200 },
-            borderWidth = 1, borderColor = { 80, 180, 80, 120 },
-            children = { statusLabel },
-        }
-    else
-        statusLabel = UI.Label { text = tostring(cost), fontSize = 12,
-            fontColor = { 255, 255, 255, 240 } }
-        local idx = bi
-        statusWidget = UI.Panel {
-            flexDirection = "row", alignItems = "center", justifyContent = "center",
-            paddingLeft = 6, paddingRight = 8, paddingTop = 3, paddingBottom = 3,
-            borderRadius = 6, gap = 4,
-            backgroundColor = canAfford and { 80, 50, 120, 255 } or { 50, 45, 60, 200 },
-            borderWidth = 1,
-            borderColor = canAfford and { 180, 130, 255, 200 } or { 70, 60, 90, 120 },
-            pointerEvents = canAfford and "auto" or "none",
-            onPointerDown = canAfford and function()
-                if onUpgrade_ then
-                    onUpgrade_(idx)
-                    BLP.Refresh()
-                end
-            end or nil,
-            children = {
-                UI.Panel { width = 18, height = 18,
-                    backgroundImage = "image/人脉.png", backgroundFit = "contain",
-                    opacity = canAfford and 1.0 or 0.4 },
-                statusLabel,
-            },
-        }
-    end
-
-    local row = UI.Panel {
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 6, borderRadius = 6, borderWidth = 1,
-        backgroundColor = bgColor,
-        borderColor = borderColor,
-        opacity = hasBuilding and 1.0 or 0.35,
-        children = {
-            -- 建筑图标
-            UI.Panel {
-                width = 30, height = 30,
-                backgroundImage = building.iconImage,
-                backgroundFit = "contain",
-            },
-            -- 名称 + 等级条
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel { flexDirection = "row", alignItems = "center", gap = 4, children = {
-                    UI.Label { text = building.name, fontSize = 13,
-                        fontColor = isMaxed and { 100, 200, 100, 255 }
-                            or { 220, 210, 240, 255 } },
-                    levelLabel,
-                }},
-                UI.Panel { flexDirection = "row", alignItems = "center", children = levelDots },
-            }},
-            -- 加成 + 费用按钮
-            UI.Panel { alignItems = "flex-end", gap = 4, children = {
-                bonusLabel,
-                statusWidget,
-            }},
-        },
-    }
-
-    -- 生成指纹
-    local fp = level .. ":" .. building.count .. ":" .. lumps
-
-    -- 缓存引用
-    rowCache_[bi] = {
-        row = row,
-        levelLabel = levelLabel,
-        bonusLabel = bonusLabel,
-        statusLabel = statusLabel,
-        dots = dotRefs,
-        lastFP = fp,
-        lastLevel = level,
-        lastCount = building.count,
-    }
-
-    return row
-end
-
--- ============================================================================
--- 增量更新单行
--- ============================================================================
-
-local function UpdateRow(bi, building)
-    local cache = rowCache_[bi]
-    if not cache or not cache.row then return end
-
-    local level = sugarLumpManager_.GetBuildingLevel(bi)
-    local maxLevel = SD.MAX_BUILDING_LEVEL
-    local cost = sugarLumpManager_.GetUpgradeCost(bi)
-    local lumps = sugarLumpManager_.GetLumps()
-    local isMaxed = level >= maxLevel
-    local hasBuilding = building.count > 0
-    local canAfford = lumps >= cost
-
-    -- 背景色
-    local bgColor, borderColor
-    if not hasBuilding then
-        bgColor = { 25, 25, 30, 200 }
-        borderColor = { 40, 40, 50, 100 }
-    elseif isMaxed then
-        bgColor = { 30, 50, 35, 255 }
-        borderColor = { 80, 180, 80, 120 }
-    elseif canAfford then
-        bgColor = { 55, 40, 60, 255 }
-        borderColor = { 200, 150, 255, 200 }
-    else
-        bgColor = { 35, 30, 45, 255 }
-        borderColor = { 80, 60, 100, 120 }
-    end
-
-    local clickable = hasBuilding and not isMaxed and canAfford
-
-    -- 更新行样式
-    cache.row:SetStyle({
-        backgroundColor = bgColor,
-        borderColor = borderColor,
-        opacity = hasBuilding and 1.0 or 0.35,
-    })
-
-    -- 更新等级标签
-    cache.levelLabel:SetText("Lv." .. level)
-    cache.levelLabel:SetFontColor(level > 0
-        and { 255, 215, 0, 220 }
-        or  { 100, 100, 120, 160 })
-
-    -- 更新加成标签
-    local bonusText = level > 0 and ("+" .. level .. "%") or ""
-    cache.bonusLabel:SetText(bonusText)
-
-    -- 更新状态标签文字
-    local statusText
-    if not hasBuilding then
-        statusText = "未拥有"
-    elseif isMaxed then
-        statusText = "MAX"
-    else
-        statusText = tostring(cost)
-    end
-    cache.statusLabel:SetText(statusText)
-
-    -- 更新等级圆点
-    for lv = 1, maxLevel do
-        local dot = cache.dots[lv]
-        if dot then
-            dot:SetStyle({
-                backgroundColor = lv <= level
-                    and { 255, 215, 0, 255 }
-                    or  { 50, 40, 60, 200 },
-            })
-        end
-    end
-
-    -- 更新指纹
-    cache.lastFP = level .. ":" .. building.count .. ":" .. lumps
-    cache.lastLevel = level
-    cache.lastCount = building.count
 end
 
 -- ============================================================================
@@ -370,10 +373,8 @@ function BLP.Show()
     if visible_ then return end
     visible_ = true
     uiRoot_:AddChild(panel_)
-    -- 重置缓存，确保 Show 时完全重建一次
-    initialized_ = false
-    rowCache_ = {}
     lastInfoText_ = ""
+    lastDataFP_ = ""
     BLP.Refresh()
 end
 
@@ -412,40 +413,21 @@ function BLP.Refresh()
         end
     end
 
-    if not listContainer_ then return end
+    if not virtualList_ then return end
 
-    -- 首次构建：创建所有行并缓存
-    if not initialized_ then
-        initialized_ = true
-        listContainer_:RemoveAllChildren()
-        for bi, building in ipairs(Buildings.buildings) do
-            listContainer_:AddChild(BuildBuildingRow(bi, building))
-        end
-        return
-    end
-
-    -- 增量更新：仅更新变化的行
+    -- 生成数据指纹
     local lumps = sugarLumpManager_.GetLumps()
+    local parts = {}
     for bi, building in ipairs(Buildings.buildings) do
-        local cache = rowCache_[bi]
-        if cache then
-            local level = sugarLumpManager_.GetBuildingLevel(bi)
-            local fp = level .. ":" .. building.count .. ":" .. lumps
-            if fp ~= cache.lastFP then
-                -- 拥有状态或满级状态变化时，重建整行（widget 结构不同）
-                local wasOwned = (cache.lastCount or 0) > 0
-                local nowOwned = building.count > 0
-                local wasMaxed = (cache.lastLevel or 0) >= SD.MAX_BUILDING_LEVEL
-                local nowMaxed = level >= SD.MAX_BUILDING_LEVEL
-                if wasOwned ~= nowOwned or wasMaxed ~= nowMaxed then
-                    local newRow = BuildBuildingRow(bi, building)
-                    listContainer_:RemoveChild(cache.row)
-                    listContainer_:InsertChild(newRow, bi)
-                else
-                    UpdateRow(bi, building)
-                end
-            end
-        end
+        local level = sugarLumpManager_.GetBuildingLevel(bi)
+        parts[bi] = level .. ":" .. building.count .. ":" .. lumps
+    end
+    local dataFP = table.concat(parts, "|")
+
+    if dataFP ~= lastDataFP_ then
+        lastDataFP_ = dataFP
+        RebuildFlatData()
+        virtualList_:SetData(flatData_)
     end
 end
 

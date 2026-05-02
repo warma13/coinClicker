@@ -217,6 +217,7 @@ function Start()
         height = "100%",
         flexDirection = "column",
         backgroundColor = { 25, 25, 35, 255 },
+
         children = {
             -- 主体区域：左侧点击区 + 右侧商店
             UI.Panel {
@@ -544,12 +545,15 @@ end
 ---@param eventData MouseButtonDownEventData
 function HandleMouseButtonDown(eventType, eventData)
     -- 金币点击已由 CoinArea 的 pointerEvents 处理
+    -- 桌面端依赖 onPointerLeave 关闭 Tooltip，此处不处理
 end
 
 ---@param eventType string
 ---@param eventData TouchBeginEventData
 function HandleTouchBegin(eventType, eventData)
     -- 金币点击已由 CoinArea 的 pointerEvents 处理
+    -- 移动端触摸后 pointerLeave 不会触发，全局触摸时关闭 Tooltip
+    Tooltip.Hide()
 end
 
 

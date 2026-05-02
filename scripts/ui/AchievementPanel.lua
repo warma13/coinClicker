@@ -1,7 +1,7 @@
 -- ============================================================================
 -- ui/AchievementPanel.lua
 -- 里程碑列表面板（覆盖式弹窗）
--- 网格布局：一行8个图标，悬浮显示 Tooltip
+-- 使用 VirtualList 虚拟化网格布局，行数据扁平化：分类标题 + 图标网格行
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
@@ -18,7 +18,7 @@ local panel_ = nil
 local statsLabel_ = nil
 local milkLabel_ = nil
 local kittenLabel_ = nil
-local listContainer_ = nil
+local virtualList_ = nil
 local kittenContainer_ = nil
 local visible_ = false
 
@@ -42,6 +42,247 @@ local COLOR_LOCKED_BORDER     = { 50, 50, 65, 100 }
 local GRID_COLS = 8
 local ICON_SIZE = 40
 local ICON_GAP = 4
+local ROW_HEIGHT = ICON_SIZE + ICON_GAP  -- 44px：统一行高（标题行和图标行都用这个）
+
+-- ======== 扁平化数据 ========
+-- flatData_[i] = { type="header", label="...", count="3/20" }
+--             或 { type="icons", items={ {achievement, unlocked}, ... } }
+local flatData_ = {}
+
+-- ============================================================================
+-- 扁平化：将成就数据按分类拆成行数据
+-- ============================================================================
+
+local CATEGORIES = {
+    { key = "production",  label = "营收里程碑" },
+    { key = "building",    label = "产业里程碑" },
+    { key = "click",       label = "签单里程碑" },
+    { key = "lucky",       label = "商机里程碑" },
+    { key = "upgrade",     label = "升级里程碑" },
+}
+
+local function RebuildFlatData()
+    flatData_ = {}
+    if not achievementManager_ then return end
+
+    local allStatus = achievementManager_.GetAllWithStatus()
+
+    for _, cat in ipairs(CATEGORIES) do
+        local items = {}
+        for _, entry in ipairs(allStatus) do
+            if entry.achievement.category == cat.key then
+                items[#items + 1] = entry
+            end
+        end
+
+        if #items > 0 then
+            local unlockedInCat = 0
+            for _, e in ipairs(items) do
+                if e.unlocked then unlockedInCat = unlockedInCat + 1 end
+            end
+
+            -- 标题行
+            flatData_[#flatData_ + 1] = {
+                type = "header",
+                label = cat.label,
+                count = unlockedInCat .. "/" .. #items,
+            }
+
+            -- 按 GRID_COLS 切分为多行
+            for row = 1, math.ceil(#items / GRID_COLS) do
+                local rowItems = {}
+                local startIdx = (row - 1) * GRID_COLS + 1
+                local endIdx = math.min(row * GRID_COLS, #items)
+                for i = startIdx, endIdx do
+                    rowItems[#rowItems + 1] = items[i]
+                end
+                flatData_[#flatData_ + 1] = {
+                    type = "icons",
+                    items = rowItems,
+                }
+            end
+        end
+    end
+end
+
+-- ============================================================================
+-- VirtualList createItem / bindItem
+-- ============================================================================
+
+--- 创建可复用行 widget（包含标题和图标两种模式的子元素）
+local function CreateRowWidget()
+    -- 标题模式元素
+    local headerLabel = UI.Label {
+        text = "",
+        fontSize = 12,
+        fontColor = { 180, 170, 120, 200 },
+    }
+
+    -- 图标模式：预创建 GRID_COLS 个图标槽位
+    local iconSlots = {}
+    for c = 1, GRID_COLS do
+        local iconImage = UI.Panel {
+            width = "100%", height = "100%",
+            position = "absolute",
+            backgroundFit = "cover",
+            pointerEvents = "none",
+            borderRadius = 5,
+        }
+        local iconEmoji = UI.Label {
+            text = "",
+            fontSize = 22,
+            textAlign = "center",
+            width = "100%", height = "100%",
+            position = "absolute",
+            justifyContent = "center",
+            pointerEvents = "none",
+        }
+        local slot = UI.Panel {
+            width = ICON_SIZE, height = ICON_SIZE,
+            justifyContent = "center", alignItems = "center",
+            borderRadius = 6, borderWidth = 1,
+            backgroundColor = COLOR_LOCKED_BG,
+            borderColor = COLOR_LOCKED_BORDER,
+            overflow = "hidden",
+            pointerEvents = "auto",
+            children = { iconImage, iconEmoji },
+        }
+        iconSlots[c] = {
+            panel = slot,
+            iconImage = iconImage,
+            iconEmoji = iconEmoji,
+        }
+    end
+
+    -- 图标容器（absolute 定位，避免与 headerRow 互相挤占空间）
+    local iconsRow = UI.Panel {
+        width = "100%",
+        height = ROW_HEIGHT,
+        position = "absolute",
+        flexDirection = "row",
+        alignItems = "center",
+        gap = ICON_GAP,
+    }
+    for c = 1, GRID_COLS do
+        iconsRow:AddChild(iconSlots[c].panel)
+    end
+
+    -- 标题容器（absolute 定位）
+    local headerRow = UI.Panel {
+        width = "100%",
+        height = ROW_HEIGHT,
+        position = "absolute",
+        justifyContent = "flex-end",
+        paddingBottom = 2,
+        children = { headerLabel },
+    }
+
+    -- 主容器
+    local row = UI.Panel {
+        width = "100%",
+        height = ROW_HEIGHT,
+    }
+    row:AddChild(headerRow)
+    row:AddChild(iconsRow)
+
+    -- 存储引用
+    row._headerRow = headerRow
+    row._headerLabel = headerLabel
+    row._iconsRow = iconsRow
+    row._iconSlots = iconSlots
+
+    return row
+end
+
+--- 绑定数据到行 widget
+local function BindRowWidget(widget, data, index)
+    if data.type == "header" then
+        -- 显示标题，隐藏图标
+        widget._headerRow:SetVisible(true)
+        widget._iconsRow:SetVisible(false)
+        widget._headerLabel:SetText(data.label .. "  (" .. data.count .. ")")
+    else
+        -- 显示图标，隐藏标题
+        widget._headerRow:SetVisible(false)
+        widget._iconsRow:SetVisible(true)
+
+        local items = data.items
+        for c = 1, GRID_COLS do
+            local slot = widget._iconSlots[c]
+            local entry = items[c]
+            if entry then
+                slot.panel:SetVisible(true)
+                local a = entry.achievement
+                local isUnlocked = entry.unlocked
+
+                local bgColor = isUnlocked and COLOR_UNLOCKED_BG or COLOR_LOCKED_BG
+
+                -- 品质边框颜色
+                local tier = a.tier or 1
+                local tierColors = AchievementDefs.TIER_COLORS
+                local tierColor = tierColors[tier] or tierColors[1]
+
+                local borderColor, borderWidth
+                if isUnlocked then
+                    borderColor = tierColor
+                    borderWidth = tier >= 5 and 3 or (tier >= 3 and 2 or 1)
+                else
+                    borderColor = COLOR_LOCKED_BORDER
+                    borderWidth = 1
+                end
+
+                slot.panel:SetStyle({
+                    backgroundColor = bgColor,
+                    borderColor = borderColor,
+                    borderWidth = borderWidth,
+                    opacity = isUnlocked and 1.0 or 0.4,
+                })
+
+                -- 图标内容
+                if not isUnlocked then
+                    slot.iconImage:SetStyle({ backgroundImage = "image/问号.png" })
+                    slot.iconImage:SetVisible(true)
+                    slot.iconEmoji:SetVisible(false)
+                elseif a.iconImage then
+                    slot.iconImage:SetStyle({ backgroundImage = a.iconImage })
+                    slot.iconImage:SetVisible(true)
+                    slot.iconEmoji:SetVisible(false)
+                else
+                    slot.iconEmoji:SetText(a.icon or "?")
+                    slot.iconEmoji:SetVisible(true)
+                    slot.iconImage:SetVisible(false)
+                end
+
+                -- Tooltip 事件
+                local achId = a.id
+                local achRef = a
+                slot.panel:SetStyle({
+                    onPointerEnter = function(event, w)
+                        local layout = w:GetAbsoluteLayout()
+                        local centerX = layout.x + layout.w / 2
+                        local topY = layout.y
+                        Tooltip.Show(function()
+                            local nowUnlocked = achievementManager_ and achievementManager_.IsUnlocked(achId) or isUnlocked
+                            return {
+                                icon = nowUnlocked and achRef.icon or nil,
+                                iconImage = nowUnlocked and achRef.iconImage or "image/问号.png",
+                                title = nowUnlocked and achRef.name or "???",
+                                desc = nowUnlocked and achRef.desc or nil,
+                                action = nowUnlocked and "✓ 已达成" or "未达成",
+                                actionColor = nowUnlocked and "green" or "gray",
+                            }
+                        end, topY, centerX)
+                    end,
+                    onPointerLeave = function()
+                        Tooltip.Hide()
+                    end,
+                })
+            else
+                slot.panel:SetVisible(false)
+            end
+        end
+    end
+end
 
 -- ============================================================================
 -- 内部：构建面板控件树（只调用一次）
@@ -67,10 +308,22 @@ local function BuildPanel()
         width = "90%", maxWidth = 600,
         marginBottom = 10,
     }
-    listContainer_ = UI.Panel {
+
+    -- 计算屏幕高度作为 viewportHeight
+    local dpr = graphics:GetDPR()
+    local screenH = graphics:GetHeight() / dpr
+
+    virtualList_ = UI.VirtualList {
         width = "100%",
-        gap = 8,
-        paddingBottom = 20,
+        flex = 1,
+        data = {},
+        itemHeight = ROW_HEIGHT,
+        itemGap = 0,
+        viewportHeight = screenH,
+        poolBuffer = 5,
+        createItem = CreateRowWidget,
+        bindItem = BindRowWidget,
+        showScrollbar = false,
     }
 
     panel_ = UI.Panel {
@@ -113,14 +366,8 @@ local function BuildPanel()
             -- Kitten 升级区
             kittenContainer_,
 
-            -- 成就列表（可滚动）
-            UI.ScrollView {
-                flex = 1,
-                width = "100%",
-                children = {
-                    listContainer_,
-                },
-            },
+            -- 成就列表（VirtualList）
+            virtualList_,
         },
     }
 end
@@ -245,96 +492,6 @@ local function CreateKittenItem(upgrade, index)
     }
 end
 
---- 创建单个成就图标格子
-local function CreateAchievementIcon(a, isUnlocked)
-    local bgColor = isUnlocked and COLOR_UNLOCKED_BG or COLOR_LOCKED_BG
-
-    -- 品质边框颜色：根据 tier 从 TIER_COLORS 取色
-    local tier = a.tier or 1
-    local tierColors = AchievementDefs.TIER_COLORS
-    local tierColor = tierColors[tier] or tierColors[1]
-    local tierName = AchievementDefs.TIER_NAMES[tier] or "普通"
-
-    local borderColor, borderWidth
-    if isUnlocked then
-        borderColor = tierColor
-        borderWidth = tier >= 5 and 3 or (tier >= 3 and 2 or 1)
-    else
-        borderColor = COLOR_LOCKED_BORDER
-        borderWidth = 1
-    end
-
-    -- 图标内容：有图片用图片，否则用 emoji；未解锁统一用问号图片
-    local iconChild
-    if not isUnlocked then
-        iconChild = UI.Panel {
-            width = "100%", height = "100%",
-            backgroundImage = "image/问号.png",
-            backgroundFit = "cover",
-            pointerEvents = "none",
-            borderRadius = 5,
-        }
-    elseif a.iconImage then
-        iconChild = UI.Panel {
-            width = "100%", height = "100%",
-            backgroundImage = a.iconImage,
-            backgroundFit = "cover",
-            pointerEvents = "none",
-            borderRadius = 5,
-        }
-    else
-        iconChild = UI.Label {
-            text = a.icon,
-            fontSize = 22,
-            textAlign = "center",
-            width = "100%",
-            pointerEvents = "none",
-        }
-    end
-
-    return UI.Panel {
-        width = ICON_SIZE, height = ICON_SIZE,
-        justifyContent = "center", alignItems = "center",
-        borderRadius = 6, borderWidth = borderWidth,
-        backgroundColor = bgColor,
-        borderColor = borderColor,
-        overflow = "hidden",
-        opacity = isUnlocked and 1.0 or 0.4,
-        pointerEvents = "auto",
-        onPointerEnter = function(event, widget)
-            local layout = widget:GetAbsoluteLayout()
-            local centerX = layout.x + layout.w / 2
-            local topY = layout.y
-            Tooltip.Show(function()
-                local nowUnlocked = achievementManager_ and achievementManager_.IsUnlocked(a.id) or isUnlocked
-                return {
-                    icon = nowUnlocked and a.icon or nil,
-                    iconImage = nowUnlocked and a.iconImage or "image/问号.png",
-                    title = nowUnlocked and a.name or "???",
-                    desc = nowUnlocked and a.desc or nil,
-                    action = nowUnlocked and "✓ 已达成" or "未达成",
-                    actionColor = nowUnlocked and "green" or "gray",
-                }
-            end, topY, centerX)
-        end,
-        onPointerLeave = function()
-            Tooltip.Hide()
-        end,
-        children = { iconChild },
-    }
-end
-
---- 创建网格行（一行最多 GRID_COLS 个图标）
-local function CreateGridRow(items)
-    return UI.Panel {
-        width = "100%",
-        flexDirection = "row",
-        flexWrap = "wrap",
-        gap = ICON_GAP,
-        children = items,
-    }
-end
-
 function AchievementPanel.Refresh()
     if not visible_ or not achievementManager_ then return end
 
@@ -405,8 +562,8 @@ function AchievementPanel.Refresh()
         end
     end
 
-    -- ── 成就列表（网格布局） ──
-    if listContainer_ then
+    -- ── 成就列表（VirtualList） ──
+    if virtualList_ then
         local allStatus = achievementManager_.GetAllWithStatus()
 
         local achParts = {}
@@ -417,50 +574,8 @@ function AchievementPanel.Refresh()
 
         if achFP ~= lastAchFP_ then
             lastAchFP_ = achFP
-            listContainer_:RemoveAllChildren()
-
-            local categories = {
-                { key = "production",  label = "营收里程碑" },
-                { key = "building",    label = "产业里程碑" },
-                { key = "click",       label = "签单里程碑" },
-                { key = "lucky",       label = "商机里程碑" },
-                { key = "upgrade",     label = "升级里程碑" },
-            }
-
-            for _, cat in ipairs(categories) do
-                local items = {}
-                for _, entry in ipairs(allStatus) do
-                    if entry.achievement.category == cat.key then
-                        items[#items + 1] = entry
-                    end
-                end
-
-                if #items > 0 then
-                    local unlockedInCat = 0
-                    for _, e in ipairs(items) do
-                        if e.unlocked then unlockedInCat = unlockedInCat + 1 end
-                    end
-
-                    -- 分类标题
-                    listContainer_:AddChild(UI.Label {
-                        text = cat.label .. "  (" .. unlockedInCat .. "/" .. #items .. ")",
-                        fontSize = 12,
-                        fontColor = { 180, 170, 120, 200 },
-                        marginTop = 8,
-                        marginBottom = 4,
-                    })
-
-                    -- 网格：使用 flexWrap 实现自动换行（保持定义顺序）
-                    local gridChildren = {}
-                    for _, entry in ipairs(items) do
-                        gridChildren[#gridChildren + 1] = CreateAchievementIcon(
-                            entry.achievement, entry.unlocked
-                        )
-                    end
-
-                    listContainer_:AddChild(CreateGridRow(gridChildren))
-                end
-            end
+            RebuildFlatData()
+            virtualList_:SetData(flatData_)
         end
     end
 end

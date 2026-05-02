@@ -326,18 +326,14 @@ function GM.Init()
     -- 初始化技能系统
     SkillManager.Init(function(x, y, skipRateLimit)
         -- 技能触发的点击（跳过频率限制）
+        -- 注意：不播放单次动画（粒子/浮动文字/图标缩放），
+        -- 否则高频自动点击会耗尽对象池，导致玩家手动点击的动画被立即覆盖
         if skipRateLimit then
             local S = GameState
             S.totalClicks = S.totalClicks + 1
             local gain = S.coinsPerClick * S.buffCpcMul
             S.coins = S.coins + gain
             S.handmadeCoins = S.handmadeCoins + gain
-            AudioManager.PlaySFX("click")
-            if coinArea_ then coinArea_.PlayClickAnim() end
-            if coinParticle_ and x and y then coinParticle_.Spawn(x, y) end
-            if floatingText_ and x and y then
-                floatingText_.Show("+" .. S.FormatNumber(gain), x, y, { 180, 255, 180, 255 })
-            end
         else
             GM.OnCoinClick(x, y)
         end

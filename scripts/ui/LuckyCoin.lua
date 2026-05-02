@@ -19,7 +19,23 @@ local INITIAL_SCALE = 1.8      -- 初始缩放（出现时大）
 local FINAL_SCALE = 0.0        -- 最终缩放（消失）
 local SWING_AMPLITUDE = 15     -- 摇摆角度幅度（度）
 local SWING_SPEED = 3.5        -- 摇摆速度
-local COIN_SIZE = 72           -- 基础面板尺寸（比之前的52更大）
+local BASE_COIN_SIZE = 72      -- 设计基准面板尺寸
+
+-- 根据屏幕逻辑分辨率按比例缩放：以短边 540 逻辑像素为基准(1.0x)
+-- 手机短边通常 320~414，系数 1.3~1.7；平板/PC 540+ 保持 1.0
+local function CalcScreenScale()
+    local dpr = graphics:GetDPR()
+    local logW = graphics:GetWidth() / dpr
+    local logH = graphics:GetHeight() / dpr
+    local shortSide = math.min(logW, logH)
+    local REF_SHORT = 540
+    local scale = REF_SHORT / math.max(shortSide, 1)
+    -- 限制范围：最小 1.0（不缩小），最大 2.0（极小屏幕也不过度放大）
+    return math.max(1.0, math.min(scale, 2.0))
+end
+
+local screenScale_ = 1.0       -- 延迟到 Init 时计算
+local COIN_SIZE = BASE_COIN_SIZE
 
 --- 创建幸运金币 UI 定义（absolute 定位的浮动面板 + 效果提示）
 ---@param onTap function 点击幸运金币的回调
@@ -76,13 +92,41 @@ function LuckyCoin.Create(onTap)
     return panel, effectLabel
 end
 
---- 初始化：缓存引用
+--- 初始化：缓存引用，计算屏幕缩放系数
 ---@param root table UI 根节点
 function LuckyCoin.Init(root)
+    -- 计算屏幕缩放系数
+    screenScale_ = CalcScreenScale()
+    COIN_SIZE = math.floor(BASE_COIN_SIZE * screenScale_)
+    -- 同步更新 GameState 中用于定位边距的尺寸
+    GameState.luckySize = COIN_SIZE
+
     luckyPanel_ = root:FindById("luckyPanel")
     luckyEffectLabel_ = root:FindById("luckyEffectLabel")
-    if luckyPanel_ then luckyPanel_:SetVisible(false) end
-    if luckyEffectLabel_ then luckyEffectLabel_:SetVisible(false) end
+
+    -- 应用缩放后的尺寸到面板
+    if luckyPanel_ then
+        luckyPanel_:SetStyle({
+            width = COIN_SIZE,
+            height = COIN_SIZE,
+            borderRadius = math.floor(COIN_SIZE / 2),
+        })
+        local imgPanel = luckyPanel_:FindById("luckyCoinImage")
+        if imgPanel then
+            imgPanel:SetStyle({
+                width = COIN_SIZE,
+                height = COIN_SIZE,
+            })
+        end
+        luckyPanel_:SetVisible(false)
+    end
+    if luckyEffectLabel_ then
+        luckyEffectLabel_:SetStyle({
+            top = COIN_SIZE + 8,
+            fontSize = math.floor(20 * screenScale_),
+        })
+        luckyEffectLabel_:SetVisible(false)
+    end
 end
 
 --- 显示幸运金币

@@ -39,10 +39,12 @@ local COLOR_UNLOCKED_BORDER   = { 255, 200, 50, 120 }
 local COLOR_LOCKED_BORDER     = { 50, 50, 65, 100 }
 
 -- ======== 网格常量 ========
-local GRID_COLS = 8
 local ICON_SIZE = 40
 local ICON_GAP = 4
 local ROW_HEIGHT = ICON_SIZE + ICON_GAP  -- 44px：统一行高（标题行和图标行都用这个）
+
+-- GRID_COLS 根据抽屉可用宽度动态计算（BuildPanel 中设置）
+local GRID_COLS = 8
 
 -- ======== 扁平化数据 ========
 -- flatData_[i] = { type="header", label="...", count="3/20" }
@@ -289,6 +291,14 @@ end
 -- ============================================================================
 
 local function BuildPanel()
+    -- 根据抽屉可用宽度动态计算网格列数
+    local dpr = graphics:GetDPR()
+    local logicalW = graphics:GetWidth() / dpr
+    local drawerW = math.floor(logicalW * 0.3)
+    local availableW = drawerW - 8 - 8  -- 面板左右 padding
+    GRID_COLS = math.floor((availableW + ICON_GAP) / (ICON_SIZE + ICON_GAP))
+    if GRID_COLS < 1 then GRID_COLS = 1 end
+
     statsLabel_ = UI.Label {
         text = "0 / 0 里程碑",
         fontSize = 14,
@@ -310,7 +320,6 @@ local function BuildPanel()
     }
 
     -- 计算屏幕高度作为 viewportHeight
-    local dpr = graphics:GetDPR()
     local screenH = graphics:GetHeight() / dpr
 
     virtualList_ = UI.VirtualList {

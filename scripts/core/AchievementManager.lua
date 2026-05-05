@@ -217,6 +217,66 @@ local function CheckDragonAchievement(a)
     return false
 end
 
+--- 检查小游戏成就
+---@param a table 成就定义
+---@return boolean
+local function CheckMinigameAchievement(a)
+    local mgType = a.mgType
+    if not mgType then return false end
+
+    -- 挖矿探险
+    if mgType == "mine_clear" then
+        local MiningMgr = require("core.MiningManager")
+        return MiningMgr.GetBoardsCleared() >= a.threshold
+    elseif mgType == "mine_streak" then
+        local MiningMgr = require("core.MiningManager")
+        return MiningMgr.GetStreak() >= a.threshold
+    -- 孵化园
+    elseif mgType == "garden_seed" then
+        local GardenMgr = require("core.GardenManager")
+        return GardenMgr.GetDiscoveredCount() >= a.threshold
+    elseif mgType == "garden_all" then
+        local GardenMgr = require("core.GardenManager")
+        local GardenCfg = require("config.GardenConfig")
+        local totalSeeds = #GardenCfg.seeds
+        return GardenMgr.GetDiscoveredCount() >= totalSeeds
+    -- 制造工厂
+    elseif mgType == "factory_deliver" then
+        local FactoryMgr = require("core.FactoryManager")
+        return FactoryMgr.GetTotalDelivered() >= a.threshold
+    elseif mgType == "factory_gather" then
+        local FactoryMgr = require("core.FactoryManager")
+        return FactoryMgr.GetTotalGathered() >= a.threshold
+    elseif mgType == "factory_level" then
+        local FactoryMgr = require("core.FactoryManager")
+        return FactoryMgr.GetFactoryLevel() >= a.threshold
+    -- 期货交易所
+    elseif mgType == "stock_profit" then
+        local StockMgr = require("core.StockMarketManager")
+        return StockMgr.GetTotalProfit() >= a.threshold
+    -- 电商平台
+    elseif mgType == "ecom_sold" then
+        local EComMgr = require("core.ECommerceManager")
+        return EComMgr.GetTotalSold() >= a.threshold
+    elseif mgType == "ecom_streak" then
+        local EComMgr = require("core.ECommerceManager")
+        return EComMgr.GetStreak() >= a.threshold
+    -- 国际物流
+    elseif mgType == "ship_deliver" then
+        local ShipMgr = require("core.ShipmentManager")
+        return ShipMgr.GetTotalShipped() >= a.threshold
+    elseif mgType == "ship_streak" then
+        local ShipMgr = require("core.ShipmentManager")
+        return ShipMgr.GetSafeStreak() >= a.threshold
+    -- 研发实验室
+    elseif mgType == "grimoire_cast" then
+        local GrimMgr = require("core.GrimoireManager")
+        return GrimMgr.GetTotalCasts() >= a.threshold
+    end
+
+    return false
+end
+
 --- 检查单个成就是否满足条件
 ---@param a table 成就定义
 ---@param ctx table 上下文数据（避免重复计算）
@@ -302,6 +362,9 @@ local function CheckAchievement(a, ctx)
 
     elseif cat == C.LEADERBOARD then
         return CheckLeaderboardAchievement(a)
+
+    elseif cat == C.MINIGAME then
+        return CheckMinigameAchievement(a)
     end
 
     return false

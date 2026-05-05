@@ -28,9 +28,18 @@ local SeasonPanel = require("ui.SeasonPanel")
 local ReindeerDisplay = require("ui.ReindeerDisplay")
 local DragonPanel = require("ui.DragonPanel")
 local SkillPanel = require("ui.SkillPanel")
+local GardenPanel = require("ui.GardenPanel")
+local PantheonPanel = require("ui.PantheonPanel")
+local GrimoirePanel = require("ui.GrimoirePanel")
+local StockMarketPanel = require("ui.StockMarketPanel")
+local MiningPanel = require("ui.MiningPanel")
+local FactoryPanel = require("ui.FactoryPanel")
+local ShipmentPanel = require("ui.ShipmentPanel")
+local ECommercePanel = require("ui.ECommercePanel")
 local SkillBar = require("ui.SkillBar")
 local LeaderboardPanel = require("ui.LeaderboardPanel")
 local SettingsPanel = require("ui.SettingsPanel")
+local DebugPanel = require("ui.DebugPanel")
 local SaveBridge = require("core.SaveBridge")
 local SlotSaveSystem = require("core.SlotSaveSystem")
 
@@ -193,6 +202,29 @@ function Start()
         scale = UI.Scale.DEFAULT,
     })
 
+    -- 移动端：触屏会同时发 Mouse + Touch，禁掉模拟鼠标事件
+    local platform = GetPlatform()
+    if platform == "Android" or platform == "iOS" or platform == "Web" then
+        input.touchEmulation = false
+        local origMouseDown = UI.HandleMouseDown
+        local origMouseUp   = UI.HandleMouseUp
+        local lastTouchTime = -1
+        local DEBOUNCE_S    = 0.1
+        UI.HandleMouseDown = function(x, y, button)
+            if time.elapsedTime - lastTouchTime < DEBOUNCE_S then return end
+            origMouseDown(x, y, button)
+        end
+        UI.HandleMouseUp = function(x, y, button)
+            if time.elapsedTime - lastTouchTime < DEBOUNCE_S then return end
+            origMouseUp(x, y, button)
+        end
+        local origTouchBegin = UI.HandleTouchBegin
+        UI.HandleTouchBegin = function(touchId, x, y, pressure)
+            lastTouchTime = time.elapsedTime
+            origTouchBegin(touchId, x, y, pressure)
+        end
+    end
+
     -- 初始化音频（需要 Scene 挂载 SoundSource）
     ---@type Scene
     local audioScene = Scene()
@@ -245,6 +277,94 @@ function Start()
                         onBuyAllBuildings = function()
                             GameManager.OnBuyAllBuildings()
                         end,
+                        onOpenGarden = function()
+                            -- 互斥：打开种植园前先关闭其他小游戏面板
+                            if PantheonPanel.IsVisible() then PantheonPanel.Hide() end
+                            if GrimoirePanel.IsVisible() then GrimoirePanel.Hide() end
+                            if StockMarketPanel.IsVisible() then StockMarketPanel.Hide() end
+                            if MiningPanel.IsVisible() then MiningPanel.Hide() end
+                            if FactoryPanel.IsVisible() then FactoryPanel.Hide() end
+                            if ShipmentPanel.IsVisible() then ShipmentPanel.Hide() end
+                            if ECommercePanel.IsVisible() then ECommercePanel.Hide() end
+                            GardenPanel.Toggle()
+                        end,
+                        onOpenPantheon = function()
+                            -- 互斥：打开商业地产前先关闭其他小游戏面板
+                            if GardenPanel.IsVisible() then GardenPanel.Hide() end
+                            if GrimoirePanel.IsVisible() then GrimoirePanel.Hide() end
+                            if StockMarketPanel.IsVisible() then StockMarketPanel.Hide() end
+                            if MiningPanel.IsVisible() then MiningPanel.Hide() end
+                            if FactoryPanel.IsVisible() then FactoryPanel.Hide() end
+                            if ShipmentPanel.IsVisible() then ShipmentPanel.Hide() end
+                            if ECommercePanel.IsVisible() then ECommercePanel.Hide() end
+                            PantheonPanel.Toggle()
+                        end,
+                        onOpenGrimoire = function()
+                            -- 互斥：打开研发实验室前先关闭其他小游戏面板
+                            if GardenPanel.IsVisible() then GardenPanel.Hide() end
+                            if PantheonPanel.IsVisible() then PantheonPanel.Hide() end
+                            if StockMarketPanel.IsVisible() then StockMarketPanel.Hide() end
+                            if MiningPanel.IsVisible() then MiningPanel.Hide() end
+                            if FactoryPanel.IsVisible() then FactoryPanel.Hide() end
+                            if ShipmentPanel.IsVisible() then ShipmentPanel.Hide() end
+                            if ECommercePanel.IsVisible() then ECommercePanel.Hide() end
+                            GrimoirePanel.Toggle()
+                        end,
+                        onOpenStockMarket = function()
+                            -- 互斥：打开证券交易所前先关闭其他小游戏面板
+                            if GardenPanel.IsVisible() then GardenPanel.Hide() end
+                            if PantheonPanel.IsVisible() then PantheonPanel.Hide() end
+                            if GrimoirePanel.IsVisible() then GrimoirePanel.Hide() end
+                            if MiningPanel.IsVisible() then MiningPanel.Hide() end
+                            if FactoryPanel.IsVisible() then FactoryPanel.Hide() end
+                            if ShipmentPanel.IsVisible() then ShipmentPanel.Hide() end
+                            if ECommercePanel.IsVisible() then ECommercePanel.Hide() end
+                            StockMarketPanel.Toggle()
+                        end,
+                        onOpenMining = function()
+                            -- 互斥：打开挖矿探险前先关闭其他小游戏面板
+                            if GardenPanel.IsVisible() then GardenPanel.Hide() end
+                            if PantheonPanel.IsVisible() then PantheonPanel.Hide() end
+                            if GrimoirePanel.IsVisible() then GrimoirePanel.Hide() end
+                            if StockMarketPanel.IsVisible() then StockMarketPanel.Hide() end
+                            if FactoryPanel.IsVisible() then FactoryPanel.Hide() end
+                            if ShipmentPanel.IsVisible() then ShipmentPanel.Hide() end
+                            if ECommercePanel.IsVisible() then ECommercePanel.Hide() end
+                            MiningPanel.Toggle()
+                        end,
+                        onOpenFactory = function()
+                            -- 互斥：打开制造工厂前先关闭其他小游戏面板
+                            if GardenPanel.IsVisible() then GardenPanel.Hide() end
+                            if PantheonPanel.IsVisible() then PantheonPanel.Hide() end
+                            if GrimoirePanel.IsVisible() then GrimoirePanel.Hide() end
+                            if StockMarketPanel.IsVisible() then StockMarketPanel.Hide() end
+                            if MiningPanel.IsVisible() then MiningPanel.Hide() end
+                            if ShipmentPanel.IsVisible() then ShipmentPanel.Hide() end
+                            if ECommercePanel.IsVisible() then ECommercePanel.Hide() end
+                            FactoryPanel.Toggle()
+                        end,
+                        onOpenShipment = function()
+                            -- 互斥：打开国际物流前先关闭其他小游戏面板
+                            if GardenPanel.IsVisible() then GardenPanel.Hide() end
+                            if PantheonPanel.IsVisible() then PantheonPanel.Hide() end
+                            if GrimoirePanel.IsVisible() then GrimoirePanel.Hide() end
+                            if StockMarketPanel.IsVisible() then StockMarketPanel.Hide() end
+                            if MiningPanel.IsVisible() then MiningPanel.Hide() end
+                            if FactoryPanel.IsVisible() then FactoryPanel.Hide() end
+                            if ECommercePanel.IsVisible() then ECommercePanel.Hide() end
+                            ShipmentPanel.Toggle()
+                        end,
+                        onOpenECommerce = function()
+                            -- 互斥：打开电商平台前先关闭其他小游戏面板
+                            if GardenPanel.IsVisible() then GardenPanel.Hide() end
+                            if PantheonPanel.IsVisible() then PantheonPanel.Hide() end
+                            if GrimoirePanel.IsVisible() then GrimoirePanel.Hide() end
+                            if StockMarketPanel.IsVisible() then StockMarketPanel.Hide() end
+                            if MiningPanel.IsVisible() then MiningPanel.Hide() end
+                            if FactoryPanel.IsVisible() then FactoryPanel.Hide() end
+                            if ShipmentPanel.IsVisible() then ShipmentPanel.Hide() end
+                            ECommercePanel.Toggle()
+                        end,
                     }, GameManager.buildingUpgrades),
                 },
             },
@@ -263,11 +383,24 @@ function Start()
                 height = "100%",
                 flexDirection = "row",
                 pointerEvents = "auto",
-                children = {
+                zIndex = 20,
+                children = (function()
+                    -- 根据屏幕短边计算侧栏尺寸，手机端更大更易点击
+                    local dpr = graphics:GetDPR()
+                    local logW = graphics:GetWidth() / dpr
+                    local logH = graphics:GetHeight() / dpr
+                    local shortSide = math.min(logW, logH)
+                    -- 图标列宽度 = 屏幕短边的 14%，限制在 48~80px
+                    local colW = math.floor(math.max(48, math.min(80, shortSide * 0.14)))
+                    -- 按钮尺寸 = 列宽 - 8px 内边距
+                    local btnSize = colW - 8
+                    -- 图标尺寸 = 按钮的 68%
+                    local iconSize = math.floor(btnSize * 0.68)
+                    return {
                     -- 图标列
                     UI.Panel {
                         id = "drawerIcons",
-                        width = 48,
+                        width = colW,
                         height = "100%",
                         flexDirection = "column",
                         alignItems = "center",
@@ -282,18 +415,19 @@ function Start()
                                 local idx = i  -- 闭包捕获
                                 items[#items + 1] = UI.Panel {
                                     id = "iconBtn_" .. i,
-                                    width = 40, height = 40,
+                                    width = btnSize, height = btnSize,
                                     justifyContent = "center", alignItems = "center",
-                                    borderRadius = 10,
-                                    marginBottom = 4,
+                                    borderRadius = math.floor(btnSize * 0.22),
+                                    marginBottom = 2,
                                     backgroundColor = { c[1], c[2], c[3], 25 },
                                     pointerEvents = "auto",
                                     onPointerDown = function()
                                         ToggleDrawerPanel(idx)
                                     end,
                                     children = {
-                                        UI.Panel { width = 28, height = 28,
-                                            backgroundImage = item.iconImage },
+                                        UI.Panel { width = iconSize, height = iconSize,
+                                            backgroundImage = item.iconImage,
+                                            pointerEvents = "none" },
                                     },
                                 }
                             end
@@ -312,7 +446,7 @@ function Start()
                         pointerEvents = "auto",
                         children = {},
                     },
-                },
+                } end)(),
             },
             -- 驯鹿浮动面板（absolute 定位）
             ReindeerDisplay.Create(function()
@@ -330,6 +464,26 @@ function Start()
             FloatingText.Create(),
             -- 成就解锁通知（顶部居中）
             AchievementNotify.Create(),
+            -- 左下角版本号
+            UI.Label {
+                position = "absolute",
+                left = 6, bottom = 4,
+                text = "v1.0.0",
+                fontSize = 9,
+                fontColor = { 100, 100, 120, 120 },
+                pointerEvents = "none",
+            },
+            -- 右上角用户 ID
+            UI.Label {
+                position = "absolute",
+                right = 6, top = 4,
+                text = "ID: " .. tostring(clientCloud and clientCloud.userId or "---"),
+                fontSize = 9,
+                fontColor = { 100, 100, 120, 120 },
+                pointerEvents = "none",
+            },
+            -- 调试按钮（仅测试账号可见）
+            DebugPanel.Create(),
         },
     }
 
@@ -446,6 +600,38 @@ function Start()
     SkillPanel.Init(drawerContent_, GameManager)
     GameManager.SetSkillPanel(SkillPanel)
 
+    -- 初始化孵化园面板（全屏覆盖弹窗，挂载到 root）
+    GardenPanel.Init(root, GameManager)
+    GameManager.SetGardenPanel(GardenPanel)
+
+    -- 初始化万神殿面板（右侧抽屉，挂载到 root）
+    PantheonPanel.Init(root, GameManager)
+    GameManager.SetPantheonPanel(PantheonPanel)
+
+    -- 初始化研发实验室面板（右侧抽屉，挂载到 root）
+    GrimoirePanel.Init(root, GameManager)
+    GameManager.SetGrimoirePanel(GrimoirePanel)
+
+    -- 初始化证券交易所面板（右侧抽屉，挂载到 root）
+    StockMarketPanel.Init(root, GameManager)
+    GameManager.SetStockMarketPanel(StockMarketPanel)
+
+    -- 初始化挖矿探险面板（右侧抽屉，挂载到 root）
+    MiningPanel.Init(root, GameManager)
+    GameManager.SetMiningPanel(MiningPanel)
+
+    -- 初始化制造工厂面板（右侧抽屉+底部栏，挂载到 root）
+    FactoryPanel.Init(root, GameManager)
+    GameManager.SetFactoryPanel(FactoryPanel)
+
+    -- 初始化国际物流面板（右侧抽屉，挂载到 root）
+    ShipmentPanel.Init(root, GameManager)
+    GameManager.SetShipmentPanel(ShipmentPanel)
+
+    -- 初始化电商平台面板（右侧抽屉，挂载到 root）
+    ECommercePanel.Init(root, GameManager)
+    GameManager.SetECommercePanel(ECommercePanel)
+
     -- 初始化底部技能快捷栏（解锁后显示，点击释放）
     SkillBar.Init(root, GameManager)
 
@@ -454,6 +640,17 @@ function Start()
 
     -- 初始化设置面板
     SettingsPanel.Init(root)
+
+    -- 初始化调试面板（仅测试账号）
+    DebugPanel.Init(root, GameManager)
+    DebugPanel.SetPanelRefs({ mining = MiningPanel })
+
+    -- 注册云存档保存成功提示
+    local dpr = graphics:GetDPR()
+    local screenW = graphics:GetWidth() / dpr
+    SlotSaveSystem.OnSaved(function()
+        FloatingText.Show("已保存", screenW / 2, 36, { 120, 220, 140, 255 })
+    end)
 
     -- 注册面板模块到抽屉系统
     DRAWER_PANELS = {
@@ -539,6 +736,7 @@ function HandleUpdate(eventType, eventData)
 
     -- BGM 循环守护
     AudioManager.Update(dt)
+
 end
 
 ---@param eventType string

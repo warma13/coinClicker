@@ -18,6 +18,7 @@ AchievementDefs.CATEGORY = {
     UPGRADE      = "upgrade",       -- 升级相关
     MISC         = "misc",          -- 杂项
     LEADERBOARD  = "leaderboard",   -- 排行榜
+    MINIGAME     = "minigame",      -- 小游戏
 }
 
 local C = AchievementDefs.CATEGORY
@@ -218,12 +219,12 @@ local grandmapoAchievements = {
     { id = "gpo_elder",   name = "驾驭危机",     icon = "😠", iconImage = "image/icon_grandmapo_20260415033117.png", desc = "解锁全部工会研究",               tier = 6 },
 }
 
---- 龙（Krumblor）里程碑
+--- AI 合伙人（K1）里程碑
 local dragonAchievements = {
-    { id = "drg_hatch",   name = "初见神龙",     icon = "🐉", iconImage = "image/icon_dragon_20260415033125.png",    desc = "孵化商业巨龙",                   threshold = 4,  tier = 2 },
-    { id = "drg_mid",     name = "龙翼展开",     icon = "🐉", iconImage = "image/icon_dragon_20260415033125.png",    desc = "巨龙成长到 Lv.10",               threshold = 10, tier = 4 },
-    { id = "drg_max",     name = "龙神降临",     icon = "🐉", iconImage = "image/icon_dragon_20260415033125.png",    desc = "巨龙达到最高等级",               threshold = 21, tier = 6 },
-    { id = "drg_aura2",   name = "双龙护体",     icon = "🐉", iconImage = "image/icon_dragon_20260415033125.png",    desc = "解锁巨龙第二光环槽",             tier = 7 },
+    { id = "drg_hatch",   name = "AI 上线",       icon = "🤖", iconImage = "image/icon_ai_partner_20260505071305.png",    desc = "AI 合伙人正式上线运行",           threshold = 4,  tier = 2 },
+    { id = "drg_mid",     name = "智能进化",      icon = "🤖", iconImage = "image/icon_ai_partner_20260505071305.png",    desc = "AI 合伙人成长到 Lv.10",          threshold = 10, tier = 4 },
+    { id = "drg_max",     name = "超级智能",      icon = "🤖", iconImage = "image/icon_ai_partner_20260505071305.png",    desc = "AI 合伙人达到最高等级",           threshold = 21, tier = 6 },
+    { id = "drg_aura2",   name = "双核驱动",      icon = "🤖", iconImage = "image/icon_ai_partner_20260505071305.png",    desc = "解锁 AI 第二策略模块槽",          tier = 7 },
 }
 
 --- 黑洞（Wrinkler）里程碑
@@ -275,6 +276,55 @@ local leaderboardAchievements = {
     { id = "lb_best50",      name = "五十强",         icon = "🎯", iconImage = "image/排行榜.png", desc = "历史最佳排名进入前50",           tier = 3, lbType = "best_rank", threshold = 50 },
     { id = "lb_best10",      name = "十强入围",       icon = "🏅", iconImage = "image/排行榜.png", desc = "历史最佳排名进入前10",           tier = 5, lbType = "best_rank", threshold = 10 },
     { id = "lb_best3",       name = "三甲荣耀",       icon = "🥇", iconImage = "image/排行榜.png", desc = "历史最佳排名进入前3",            tier = 6, lbType = "best_rank", threshold = 3 },
+}
+
+--- 小游戏里程碑
+local minigameAchievements = {
+    -- ======== 挖矿探险 ========
+    { id = "mg_mine_clear1",    name = "初探矿脉",     icon = "⛏️", iconImage = "image/采矿场.png", desc = "清空矿区 1 次",               threshold = 1,     tier = 1, mgType = "mine_clear" },
+    { id = "mg_mine_clear10",   name = "矿区扫荡",     icon = "⛏️", iconImage = "image/采矿场.png", desc = "累计清空矿区 10 次",           threshold = 10,    tier = 2, mgType = "mine_clear" },
+    { id = "mg_mine_clear50",   name = "矿区征服者",   icon = "⛏️", iconImage = "image/采矿场.png", desc = "累计清空矿区 50 次",           threshold = 50,    tier = 3, mgType = "mine_clear" },
+    { id = "mg_mine_clear200",  name = "矿王",         icon = "⛏️", iconImage = "image/采矿场.png", desc = "累计清空矿区 200 次",          threshold = 200,   tier = 5, mgType = "mine_clear" },
+    { id = "mg_mine_streak5",   name = "连击新手",     icon = "⛏️", iconImage = "image/采矿场.png", desc = "挖矿连击达到 5",               threshold = 5,     tier = 2, mgType = "mine_streak" },
+    { id = "mg_mine_streak15",  name = "连击大师",     icon = "⛏️", iconImage = "image/采矿场.png", desc = "挖矿连击达到 15",              threshold = 15,    tier = 4, mgType = "mine_streak" },
+
+    -- ======== 孵化园 / 花园 ========
+    { id = "mg_garden_seed5",   name = "园丁入门",     icon = "🌱", iconImage = "image/侧栏_孵化园.png", desc = "发现 5 种种子",            threshold = 5,     tier = 1, mgType = "garden_seed" },
+    { id = "mg_garden_seed15",  name = "植物学家",     icon = "🌱", iconImage = "image/侧栏_孵化园.png", desc = "发现 15 种种子",           threshold = 15,    tier = 3, mgType = "garden_seed" },
+    { id = "mg_garden_seed30",  name = "种子猎人",     icon = "🌱", iconImage = "image/侧栏_孵化园.png", desc = "发现 30 种种子",           threshold = 30,    tier = 5, mgType = "garden_seed" },
+    { id = "mg_garden_all",     name = "全图鉴收集",   icon = "🌱", iconImage = "image/侧栏_孵化园.png", desc = "发现全部种子",             threshold = 999,   tier = 7, mgType = "garden_all" },
+
+    -- ======== 制造工厂 ========
+    { id = "mg_fac_deliver10",  name = "初级工头",     icon = "🏭", iconImage = "image/制造工厂.png", desc = "累计交付 10 个订单",          threshold = 10,    tier = 1, mgType = "factory_deliver" },
+    { id = "mg_fac_deliver50",  name = "生产主管",     icon = "🏭", iconImage = "image/制造工厂.png", desc = "累计交付 50 个订单",          threshold = 50,    tier = 2, mgType = "factory_deliver" },
+    { id = "mg_fac_deliver200", name = "工厂之王",     icon = "🏭", iconImage = "image/制造工厂.png", desc = "累计交付 200 个订单",         threshold = 200,   tier = 4, mgType = "factory_deliver" },
+    { id = "mg_fac_gather100",  name = "采集达人",     icon = "🏭", iconImage = "image/制造工厂.png", desc = "累计采集 100 次原料",         threshold = 100,   tier = 2, mgType = "factory_gather" },
+    { id = "mg_fac_gather500",  name = "采集狂魔",     icon = "🏭", iconImage = "image/制造工厂.png", desc = "累计采集 500 次原料",         threshold = 500,   tier = 4, mgType = "factory_gather" },
+    { id = "mg_fac_level5",     name = "工厂扩建",     icon = "🏭", iconImage = "image/制造工厂.png", desc = "工厂达到 5 级",               threshold = 5,     tier = 3, mgType = "factory_level" },
+    { id = "mg_fac_level10",    name = "工业帝国",     icon = "🏭", iconImage = "image/制造工厂.png", desc = "工厂达到 10 级",              threshold = 10,    tier = 5, mgType = "factory_level" },
+
+    -- ======== 期货交易所 / 股市 ========
+    { id = "mg_stock_profit1m", name = "初入股海",     icon = "📈", iconImage = "image/期货交易所.png", desc = "股市累计盈利达到 1M",       threshold = 1e6,   tier = 2, mgType = "stock_profit" },
+    { id = "mg_stock_profit1b", name = "股市赢家",     icon = "📈", iconImage = "image/期货交易所.png", desc = "股市累计盈利达到 1B",       threshold = 1e9,   tier = 4, mgType = "stock_profit" },
+    { id = "mg_stock_profit1t", name = "华尔街之狼",   icon = "📈", iconImage = "image/期货交易所.png", desc = "股市累计盈利达到 1T",       threshold = 1e12,  tier = 6, mgType = "stock_profit" },
+
+    -- ======== 电商平台 ========
+    { id = "mg_ecom_sold50",    name = "电商新秀",     icon = "🛒", iconImage = "image/电商平台.png", desc = "累计销售 50 件商品",          threshold = 50,    tier = 1, mgType = "ecom_sold" },
+    { id = "mg_ecom_sold200",   name = "带货达人",     icon = "🛒", iconImage = "image/电商平台.png", desc = "累计销售 200 件商品",         threshold = 200,   tier = 3, mgType = "ecom_sold" },
+    { id = "mg_ecom_sold1000",  name = "电商帝国",     icon = "🛒", iconImage = "image/电商平台.png", desc = "累计销售 1,000 件商品",       threshold = 1000,  tier = 5, mgType = "ecom_sold" },
+    { id = "mg_ecom_streak10",  name = "好评如潮",     icon = "🛒", iconImage = "image/电商平台.png", desc = "电商连击达到 10",             threshold = 10,    tier = 3, mgType = "ecom_streak" },
+
+    -- ======== 国际物流 ========
+    { id = "mg_ship_deliver10", name = "新手船长",     icon = "🚢", iconImage = "image/国际物流.png", desc = "累计送达 10 批货物",          threshold = 10,    tier = 1, mgType = "ship_deliver" },
+    { id = "mg_ship_deliver50", name = "航海老手",     icon = "🚢", iconImage = "image/国际物流.png", desc = "累计送达 50 批货物",          threshold = 50,    tier = 3, mgType = "ship_deliver" },
+    { id = "mg_ship_deliver200",name = "物流大亨",     icon = "🚢", iconImage = "image/国际物流.png", desc = "累计送达 200 批货物",         threshold = 200,   tier = 5, mgType = "ship_deliver" },
+    { id = "mg_ship_streak5",   name = "安全运输",     icon = "🚢", iconImage = "image/国际物流.png", desc = "连续安全送达 5 批",           threshold = 5,     tier = 2, mgType = "ship_streak" },
+    { id = "mg_ship_streak20",  name = "零事故纪录",   icon = "🚢", iconImage = "image/国际物流.png", desc = "连续安全送达 20 批",          threshold = 20,    tier = 4, mgType = "ship_streak" },
+
+    -- ======== 研发实验室 ========
+    { id = "mg_grim_cast10",    name = "研发新手",     icon = "🔬", iconImage = "image/研发中心.png", desc = "累计施法 10 次",              threshold = 10,    tier = 1, mgType = "grimoire_cast" },
+    { id = "mg_grim_cast50",    name = "研发专家",     icon = "🔬", iconImage = "image/研发中心.png", desc = "累计施法 50 次",              threshold = 50,    tier = 3, mgType = "grimoire_cast" },
+    { id = "mg_grim_cast200",   name = "研发大师",     icon = "🔬", iconImage = "image/研发中心.png", desc = "累计施法 200 次",             threshold = 200,   tier = 5, mgType = "grimoire_cast" },
 }
 
 -- ============================================================================
@@ -387,6 +437,12 @@ end
 -- 注入排行榜里程碑
 for _, a in ipairs(leaderboardAchievements) do
     a.category = C.LEADERBOARD
+    AchievementDefs.all[#AchievementDefs.all + 1] = a
+end
+
+-- 注入小游戏里程碑
+for _, a in ipairs(minigameAchievements) do
+    a.category = C.MINIGAME
     AchievementDefs.all[#AchievementDefs.all + 1] = a
 end
 

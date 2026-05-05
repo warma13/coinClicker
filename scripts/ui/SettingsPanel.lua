@@ -34,9 +34,6 @@ function SP.CloseModal()
     bgmSlider_ = nil
     sfxSlider_ = nil
     saveStatusLabel_ = nil
-    if btnWidget_ then
-        btnWidget_:Show()
-    end
 end
 
 --- 打开设置弹窗
@@ -112,6 +109,7 @@ function SP.OpenModal()
         position = "absolute",
         left = 0, top = 0,
         width = "100%", height = "100%",
+        zIndex = 200,
         justifyContent = "center",
         alignItems = "center",
         backgroundColor = { 0, 0, 0, 160 },
@@ -254,11 +252,6 @@ function SP.OpenModal()
             },
         },
     }
-
-    -- 隐藏按钮
-    if btnWidget_ then
-        btnWidget_:Hide()
-    end
 
     -- 添加到根节点
     uiRoot_:AddChild(overlay_)

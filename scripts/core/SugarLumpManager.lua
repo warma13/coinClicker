@@ -167,6 +167,16 @@ function SLM.IsUnlocked()
     return unlocked_
 end
 
+--- [调试] 立即进入成熟阶段
+function SLM.DebugMature()
+    if not unlocked_ then
+        unlocked_ = true
+        currentType_ = SD.RollType()
+    end
+    growthTimer_ = SD.COALESCING_DURATION
+    print("[SugarLump] Debug: 立即成熟")
+end
+
 -- ============================================================================
 -- 收获
 -- ============================================================================

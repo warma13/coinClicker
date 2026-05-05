@@ -192,7 +192,7 @@ end
 --- 上传最高金币到排行榜
 function LP.UploadScore()
     if not clientCloud then return end
-    local man, exp = LP.SplitCoins(GameState.coins)
+    local man, exp = LP.SplitCoins(GameState.maxCoins)
     if exp < lastUploadedExp_ then return end
     if exp == lastUploadedExp_ and man <= lastUploadedMan_ then return end
 
@@ -567,9 +567,6 @@ function LP.CloseModal()
     listContainer_ = nil
     loadMoreBtn_ = nil
     myRankPanel_ = nil
-    if btnWidget_ then
-        btnWidget_:Show()
-    end
 end
 
 --- 打开排行榜弹窗
@@ -616,6 +613,7 @@ function LP.OpenModal()
         position = "absolute",
         left = 0, top = 0,
         width = "100%", height = "100%",
+        zIndex = 200,
         justifyContent = "center",
         alignItems = "center",
         backgroundColor = { 0, 0, 0, 160 },
@@ -710,11 +708,6 @@ function LP.OpenModal()
         },
     }
 
-    -- 隐藏按钮
-    if btnWidget_ then
-        btnWidget_:Hide()
-    end
-
     -- 添加到 UI 根节点
     uiRoot_:AddChild(overlay_)
 
@@ -786,6 +779,25 @@ function LP.Init(root)
     uiRoot_ = root
     if clientCloud then
         initialized_ = true
+        -- 从云端恢复已上传的最高分，防止启动后上传更低的值
+        clientCloud:Get("coin_exp", {
+            ok = function(val)
+                local cloudExp = tonumber(val) or -1
+                if cloudExp > lastUploadedExp_ then
+                    lastUploadedExp_ = cloudExp
+                    clientCloud:Get("coin_man", {
+                        ok = function(manVal)
+                            lastUploadedMan_ = tonumber(manVal) or -1
+                            -- 同步到 maxCoins（如果云端比本地高）
+                            local cloudCoins = LP.RestoreCoins(lastUploadedMan_, lastUploadedExp_)
+                            if cloudCoins > GameState.maxCoins then
+                                GameState.maxCoins = cloudCoins
+                            end
+                        end,
+                    })
+                end
+            end,
+        })
     end
 end
 

@@ -22,12 +22,19 @@ local BAR_GAP = 3
 --- 创建 Buff 栏 UI 定义（absolute 底部浮动，排在商店栏左侧）
 ---@return table UI 组件定义
 function StatsBar.Create()
+    -- paddingLeft 跟随侧边栏宽度，避免被遮挡
+    local dpr = graphics:GetDPR()
+    local logW = graphics:GetWidth() / dpr
+    local logH = graphics:GetHeight() / dpr
+    local shortSide = math.min(logW, logH)
+    local sidebarW = math.floor(math.max(48, math.min(80, shortSide * 0.14)))
+
     return UI.Panel {
         id = "buffBar",
         width = "100%",
         flexDirection = "column",
         gap = BAR_GAP,
-        paddingLeft = 56, paddingRight = 56,
+        paddingLeft = sidebarW + 8, paddingRight = 56,
         paddingBottom = 8,
         pointerEvents = "none",
     }
@@ -43,6 +50,20 @@ end
 --- 兼容旧接口
 function StatsBar.Refresh() end
 
+--- 根据 multiplierKey/multiplierVal 生成效果描述文本
+local function GetEffectDesc(b)
+    local mKey = b.multiplierKey
+    local mVal = b.multiplierVal
+    if not mKey or not mVal then return nil end
+    local label = (mKey == "cpc") and "点击" or "CPS"
+    if mVal >= 2 then
+        return label .. " ×" .. string.format("%g", mVal)
+    else
+        local pct = math.floor((mVal - 1) * 100 + 0.5)
+        return label .. " +" .. pct .. "%"
+    end
+end
+
 --- 生成单个 buff 进度条控件
 local function BuildBuffWidget(b)
     local pct = b.remaining / b.duration
@@ -53,8 +74,17 @@ local function BuildBuffWidget(b)
     -- 进度条前景色
     local fgCol = { col[1], col[2], col[3], 200 }
 
+    -- 构建显示文本：名称 效果描述 倒计时
+    local buffName = b.name or b.id or "buff"
+    local effectDesc = GetEffectDesc(b)
+    local displayText = buffName
+    if effectDesc then
+        displayText = displayText .. " " .. effectDesc
+    end
+    displayText = displayText .. "  " .. secs .. "s"
+
     local nameLabel = UI.Label {
-        text = b.name .. "  " .. secs .. "s",
+        text = displayText,
         fontSize = 10,
         fontColor = fgCol,
         pointerEvents = "none",
@@ -140,7 +170,14 @@ function StatsBar.RefreshBuffBar()
             if c then
                 local secs = math.ceil(b.remaining)
                 if secs ~= c.lastSecs then
-                    c.nameLabel:SetText(b.name .. "  " .. secs .. "s")
+                    local buffName = b.name or b.id or "buff"
+                    local effectDesc = GetEffectDesc(b)
+                    local displayText = buffName
+                    if effectDesc then
+                        displayText = displayText .. " " .. effectDesc
+                    end
+                    displayText = displayText .. "  " .. secs .. "s"
+                    c.nameLabel:SetText(displayText)
                     c.lastSecs = secs
                 end
                 local pct = math.max(1, math.floor((b.remaining / b.duration) * 100))

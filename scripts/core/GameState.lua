@@ -7,6 +7,8 @@
 local State = {
     -- 金币数量
     coins = 0,
+    -- 历史最高金币（用于排行榜上传）
+    maxCoins = 0,
 
     -- 累计点击次数
     totalClicks = 0,
@@ -22,6 +24,8 @@ local State = {
 
     -- 每秒自动产出
     coinsPerSecond = 0,
+    -- 全局 CPS 倍率（建筑基础产出之上的全局乘法，由 ProductionCalculator 计算）
+    globalCpsMul = 1,
 
     -- 幸运金币升级倍率
     luckyClicks = 0,     -- 累计点击幸运金币次数

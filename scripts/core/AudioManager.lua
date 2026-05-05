@@ -60,6 +60,22 @@ function AM.Init(gameScene)
     LoadSound("btn_click", "audio/sfx/btn_click.ogg", false)
     LoadSound("bgm", "audio/music/bgm.ogg", true)
 
+    -- 挖矿音效
+    LoadSound("mining_dig", "audio/sfx/mining_dig.ogg", false)
+    LoadSound("mining_ore_copper", "audio/sfx/mining_ore_copper.ogg", false)
+    LoadSound("mining_ore_iron", "audio/sfx/mining_ore_iron.ogg", false)
+    LoadSound("mining_ore_gold", "audio/sfx/mining_ore_gold.ogg", false)
+    LoadSound("mining_ore_gem", "audio/sfx/mining_ore_gem.ogg", false)
+    LoadSound("mining_ore_fossil", "audio/sfx/mining_ore_fossil.ogg", false)
+    LoadSound("mining_empty", "audio/sfx/mining_empty.ogg", false)
+    LoadSound("mining_collapse", "audio/sfx/mining_collapse.ogg", false)
+    LoadSound("mining_streak", "audio/sfx/mining_streak.ogg", false)
+    LoadSound("mining_full_clear", "audio/sfx/mining_full_clear.ogg", false)
+    LoadSound("mining_scanner", "audio/sfx/mining_scanner.ogg", false)
+    LoadSound("mining_dynamite", "audio/sfx/mining_dynamite.ogg", false)
+    LoadSound("mining_refresh", "audio/sfx/mining_refresh.ogg", false)
+    LoadSound("mining_tool_select", "audio/sfx/mining_tool_select.ogg", false)
+
     print("[AudioManager] Initialized")
 end
 

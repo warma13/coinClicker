@@ -61,6 +61,9 @@ local CATEGORIES = {
     { key = "click",       label = "签单里程碑" },
     { key = "lucky",       label = "商机里程碑" },
     { key = "upgrade",     label = "升级里程碑" },
+    { key = "misc",        label = "杂项里程碑" },
+    { key = "leaderboard", label = "排行榜里程碑" },
+    { key = "minigame",    label = "小游戏里程碑" },
 }
 
 local function RebuildFlatData()

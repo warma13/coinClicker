@@ -247,7 +247,7 @@ local function BindRowWidget(widget, data, index)
                     borderWidth = 1,
                     borderColor = canAfford and { 180, 130, 255, 200 } or { 70, 60, 90, 120 },
                     pointerEvents = canAfford and "auto" or "none",
-                    onPointerDown = canAfford and function()
+                    onTap = canAfford and function()
                         if onUpgrade_ then
                             onUpgrade_(idx)
                             BLP.Refresh()

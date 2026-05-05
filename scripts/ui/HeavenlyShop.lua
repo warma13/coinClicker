@@ -9,6 +9,7 @@
 local UI = require("urhox-libs/UI")
 local AD = require("config.AscensionDefs")
 local GameState = require("core.GameState")
+local Tooltip = require("ui.Tooltip")
 
 local HS = {}
 
@@ -247,12 +248,23 @@ local function BindRowWidget(widget, data, index)
                     borderWidth = 1,
                     borderColor = clickable and { 180, 130, 255, 200 } or { 70, 60, 90, 120 },
                     pointerEvents = clickable and "auto" or "none",
-                    onPointerDown = clickable and function()
+                    onTap = clickable and function()
                         if onBuyUpgrade_ then
                             onBuyUpgrade_(upgradeId)
                             HS.Refresh()
                         end
                     end or nil,
+                    onLongPressStart = clickable and function(event)
+                        local tooltipFn = function()
+                            return {
+                                title = u.name,
+                                desc = u.desc or "",
+                                cost = GameState.FormatNumber(u.cost) .. " 经验",
+                            }
+                        end
+                        Tooltip.Show(tooltipFn, event.y)
+                    end or nil,
+                    onLongPressEnd = function() Tooltip.Hide() end,
                     children = {
                         UI.Panel { width = 18, height = 18,
                             backgroundImage = "image/icon_管理经验.png", backgroundFit = "contain",

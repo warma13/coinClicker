@@ -15,6 +15,14 @@ local GrandmapoMgr    = require("core.GrandmapoManager")
 local WrinklerMgr     = require("core.WrinklerManager")
 local SeasonMgr       = require("core.SeasonManager")
 local DragonMgr       = require("core.DragonManager")
+local GardenMgr       = require("core.GardenManager")
+local PantheonMgr     = require("core.PantheonManager")
+local GrimoireMgr     = require("core.GrimoireManager")
+local StockMarketMgr  = require("core.StockMarketManager")
+local MiningMgr       = require("core.MiningManager")
+local FactoryMgr      = require("core.FactoryManager")
+local ShipmentMgr     = require("core.ShipmentManager")
+local ECommerceMgr    = require("core.ECommerceManager")
 
 local SB = {}
 
@@ -38,6 +46,14 @@ local GROUP_NAMES = {
     "dragon",        -- 龙系统
     "misc",          -- 糖块 + 技能 + 其他
     "settings",      -- 音量等用户设置
+    "garden",        -- 项目孵化园
+    "pantheon",      -- 商业顾问团（万神殿）
+    "grimoire",      -- 研发实验室（魔法书）
+    "stockmarket",   -- 证券交易所（股票市场）
+    "mining",        -- 挖矿探险
+    "factory",       -- 制造工厂
+    "shipment",      -- 国际物流
+    "ecommerce",     -- 电商平台
 }
 
 -- ---------------------------------------------------------------------------
@@ -82,6 +98,7 @@ function SB.Serialize()
     -- -------- core --------
     local core = {
         coins          = S.coins,
+        maxCoins       = S.maxCoins,
         totalClicks    = S.totalClicks,
         handmadeCoins  = S.handmadeCoins,
         wrinklersPopped = S.wrinklersPopped,
@@ -151,6 +168,23 @@ function SB.Serialize()
         end
     end
 
+    -- -------- activeBuffs（仅保存 gameplay 字段） --------
+    local buffs = {}
+    for _, b in ipairs(S.activeBuffs) do
+        if b.remaining and b.remaining > 0 then
+            buffs[#buffs + 1] = {
+                id  = b.id,
+                n   = b.name,
+                ic  = b.icon,
+                cl  = b.color,
+                rem = b.remaining,
+                dur = b.duration,
+                mk  = b.multiplierKey,
+                mv  = b.multiplierVal,
+            }
+        end
+    end
+
     -- -------- 组装完整存档 --------
     return {
         version   = CURRENT_VERSION,
@@ -175,11 +209,20 @@ function SB.Serialize()
             sugarLump = SugarLumpMgr.GetSaveData(),
             skills    = skills,
             stamina   = S.stamina,
+            buffs     = #buffs > 0 and buffs or nil,
         },
         settings = {
             bgmVol = S.settings.bgmVolume,
             sfxVol = S.settings.sfxVolume,
         },
+        garden = GardenMgr.GetSaveData(),
+        pantheon = PantheonMgr.GetSaveData(),
+        grimoire = GrimoireMgr.GetSaveData(),
+        stockmarket = StockMarketMgr.GetSaveData(),
+        mining = MiningMgr.GetSaveData(),
+        factory = FactoryMgr.GetSaveData(),
+        shipment = ShipmentMgr.GetSaveData(),
+        ecommerce = ECommerceMgr.GetSaveData(),
     }
 end
 
@@ -196,6 +239,7 @@ function SB.Deserialize(data)
     -- -------- core --------
     local core = data.core or {}
     S.coins           = core.coins or 0
+    S.maxCoins        = core.maxCoins or S.coins
     S.totalClicks     = core.totalClicks or 0
     S.handmadeCoins   = core.handmadeCoins or 0
     S.wrinklersPopped = core.wrinklersPopped or 0
@@ -295,6 +339,30 @@ function SB.Deserialize(data)
     end
     S.stamina = miscData.stamina or 0
 
+    -- -------- activeBuffs（恢复 + 离线扣减） --------
+    S.activeBuffs = {}
+    local savedBuffs = miscData.buffs
+    if savedBuffs then
+        for _, sb in ipairs(savedBuffs) do
+            local rem = (sb.rem or 0) - offlineSec
+            if rem > 0 and sb.mk and sb.mv then
+                S.activeBuffs[#S.activeBuffs + 1] = {
+                    id            = sb.id or "unknown",
+                    name          = sb.n or sb.id or "Buff",
+                    icon          = sb.ic or "⭐",
+                    color         = sb.cl or { 255, 215, 0, 255 },
+                    remaining     = rem,
+                    duration      = sb.dur or rem,
+                    multiplierKey = sb.mk,
+                    multiplierVal = sb.mv,
+                }
+            end
+        end
+        if #S.activeBuffs > 0 then
+            print("[SaveBridge] 恢复 " .. #S.activeBuffs .. " 个 buff（离线 " .. offlineSec .. "s，过期 " .. (#savedBuffs - #S.activeBuffs) .. " 个）")
+        end
+    end
+
     -- -------- settings --------
     local stg = data.settings or {}
     S.settings.bgmVolume = stg.bgmVol or 0.4
@@ -308,6 +376,14 @@ function SB.Deserialize(data)
     SeasonMgr.SetState(data.seasons)
     DragonMgr.LoadSaveData(data.dragon)
     SugarLumpMgr.LoadSaveData(data.misc and data.misc.sugarLump)
+    GardenMgr.LoadSaveData(data.garden)
+    PantheonMgr.LoadSaveData(data.pantheon)
+    GrimoireMgr.LoadSaveData(data.grimoire)
+    StockMarketMgr.LoadSaveData(data.stockmarket)
+    MiningMgr.LoadSaveData(data.mining)
+    FactoryMgr.LoadSaveData(data.factory)
+    ShipmentMgr.LoadSaveData(data.shipment)
+    ECommerceMgr.LoadSaveData(data.ecommerce)
 
     print("[SaveBridge] 反序列化完成")
 end

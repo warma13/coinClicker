@@ -38,6 +38,7 @@ local pendingSave_    = nil     -- 待重试的存档数据
 local headCache_      = nil     -- 最近一次写入的 head（用于清理旧分片）
 local saving_         = false   -- 防止并发保存
 local loading_        = false
+local onSavedCallback_ = nil   -- 保存成功外部回调
 
 -- ============================================================================
 -- DJB2 校验码
@@ -219,6 +220,7 @@ local function SaveToCloud(saveData, onComplete)
 
             headCache_ = headData
             print("[SaveSystem] 云端保存成功 (" .. os.date("%H:%M:%S") .. ")")
+            if onSavedCallback_ then onSavedCallback_() end
             if onComplete then onComplete(true) end
         end,
         error = function(code, reason)
@@ -516,6 +518,12 @@ end
 ---@return boolean
 function SSS.IsLoading()
     return loading_
+end
+
+--- 注册云端保存成功回调
+---@param fn fun()
+function SSS.OnSaved(fn)
+    onSavedCallback_ = fn
 end
 
 return SSS

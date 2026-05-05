@@ -11,9 +11,9 @@ local FloatingText = {}
 -- 配置
 local MAX_VISIBLE = 3
 local FLOAT_SPEED = 50         -- 向上浮动速度（像素/秒）
-local NORMAL_LIFE = 1.2        -- 正常存活时间（秒）
+local NORMAL_LIFE = 2.5        -- 正常存活时间（秒）
 local FAST_FADE_LIFE = 0.2     -- 被顶掉时快速淡出时间（秒）
-local LABEL_WIDTH = 140        -- Label 固定宽度（用于居中偏移）
+local LABEL_WIDTH = 320        -- Label 固定宽度（用于居中偏移）
 local BASE_FONT_SIZE = 20      -- 基础字号
 
 -- 活跃文本队列

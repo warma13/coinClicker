@@ -99,24 +99,57 @@ function SLD.CreateWidget()
                 fontSize = 11,
                 fontColor = { 160, 200, 160, 220 },
             },
+            -- 分隔线
+            UI.Panel {
+                width = "100%", height = 1,
+                backgroundColor = { 100, 80, 140, 80 },
+                marginTop = 2, marginBottom = 2,
+            },
+            UI.Label {
+                id = "ttDesc",
+                text = "人脉每22小时积累一轮\n成熟后点击图标即可收获\n可用于产业升级(+1%CPS/级)\n持有人脉也有加成(+1%/条)",
+                fontSize = 9,
+                fontColor = { 140, 140, 160, 160 },
+                lineHeight = 1.4,
+            },
         },
     }
 
-    -- 顶部小图标
+    -- 顶部小图标（left 跟随侧边栏宽度）
+    local dpr = graphics:GetDPR()
+    local logW = graphics:GetWidth() / dpr
+    local logH = graphics:GetHeight() / dpr
+    local shortSide = math.min(logW, logH)
+    local sidebarW = math.floor(math.max(48, math.min(80, shortSide * 0.14)))
+
     widget_ = UI.Panel {
         id = "sugarLumpWidget",
         position = "absolute",
         top = 8,
-        left = 56,
+        left = sidebarW + 8,
         flexDirection = "column",
         alignItems = "center",
         pointerEvents = "auto",
         zIndex = 10,
-        onPointerDown = function()
+        -- 严格点击判定：短按收获，长按不触发点击
+        onTap = function()
             if onHarvestClick_ then
                 onHarvestClick_()
             end
         end,
+        -- 长按显示浮窗
+        onLongPressStart = function()
+            if tooltip_ then
+                SLD.RefreshTooltip()
+                tooltip_:SetVisible(true)
+            end
+        end,
+        onLongPressEnd = function()
+            if tooltip_ then
+                tooltip_:SetVisible(false)
+            end
+        end,
+        -- 桌面端悬浮显示
         onPointerEnter = function()
             if tooltip_ then
                 SLD.RefreshTooltip()

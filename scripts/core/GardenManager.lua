@@ -92,9 +92,11 @@ function GM.Init()
     bugImmunityTimer_ = 0
     growthBoostTimer_ = 0
     discoveredSeeds_ = {}
-    -- 基础种子默认已发现
+    -- 基础种子默认已发现（仅 tier 1）
     for _, s in ipairs(GC.seeds) do
-        discoveredSeeds_[s.id] = true
+        if s.tier == 1 then
+            discoveredSeeds_[s.id] = true
+        end
     end
 end
 
@@ -565,10 +567,12 @@ function GM.LoadSaveData(data)
     crossbreedTimer_ = data.ct or 0
     bugTimer_ = data.bt or 0
 
-    -- 恢复发现列表
+    -- 恢复发现列表（基础种子 tier=1 默认已发现 + 存档中实际发现的）
     discoveredSeeds_ = {}
     for _, s in ipairs(GC.seeds) do
-        discoveredSeeds_[s.id] = true
+        if s.tier == 1 then
+            discoveredSeeds_[s.id] = true
+        end
     end
     if data.disc then
         for _, id in ipairs(data.disc) do

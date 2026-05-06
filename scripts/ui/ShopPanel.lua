@@ -29,6 +29,11 @@ local buildingUpgrades_ = nil
 local upgradeContainer_ = nil
 local lastVisibleSnap_ = ""
 
+-- ======== 小游戏解锁跟踪 ========
+-- 有小游戏的建筑索引集合，用于检测 count 从 0 变 >=1 时触发列表重建
+local MINIGAME_INDICES = { [3]=true, [4]=true, [5]=true, [6]=true, [7]=true, [8]=true, [9]=true, [11]=true }
+local minigameUnlocked_ = {}  -- { [index] = true/false } 上次已知解锁状态
+
 -- ======== 升级图标缓存 ========
 local iconCache_ = {}  -- { [id_string] = widget }
 
@@ -1226,29 +1231,30 @@ local function RebuildBuildingList()
     if not container then return end
     container:RemoveAllChildren()
     for i, b in ipairs(buildings_) do
+        -- 小游戏特殊行：仅当建筑 count >= 1 时才显示小游戏入口，否则显示普通购买行
         -- 种植园（index 3）使用特殊行：点击展开侧边栏，独立购买按钮
-        if i == 3 and callbacks_ and callbacks_.onOpenGarden then
+        if i == 3 and b.count >= 1 and callbacks_ and callbacks_.onOpenGarden then
             container:AddChild(CreateGardenBuildingItem(b, i))
         -- 采矿场（index 4）使用特殊行：点击展开挖矿探险侧边栏
-        elseif i == 4 and callbacks_ and callbacks_.onOpenMining then
+        elseif i == 4 and b.count >= 1 and callbacks_ and callbacks_.onOpenMining then
             container:AddChild(CreateMineBuildingItem(b, i))
         -- 制造工厂（index 5）使用特殊行：点击展开制造工厂侧边栏
-        elseif i == 5 and callbacks_ and callbacks_.onOpenFactory then
+        elseif i == 5 and b.count >= 1 and callbacks_ and callbacks_.onOpenFactory then
             container:AddChild(CreateFactoryBuildingItem(b, i))
         -- 商业银行（index 6）使用特殊行：点击展开证券交易所侧边栏
-        elseif i == 6 and callbacks_ and callbacks_.onOpenStockMarket then
+        elseif i == 6 and b.count >= 1 and callbacks_ and callbacks_.onOpenStockMarket then
             container:AddChild(CreateBankBuildingItem(b, i))
         -- 商业地产（index 7）使用特殊行：点击展开万神殿侧边栏
-        elseif i == 7 and callbacks_ and callbacks_.onOpenPantheon then
+        elseif i == 7 and b.count >= 1 and callbacks_ and callbacks_.onOpenPantheon then
             container:AddChild(CreateTempleBuildingItem(b, i))
         -- 研发中心（index 8）使用特殊行：点击展开研发实验室侧边栏
-        elseif i == 8 and callbacks_ and callbacks_.onOpenGrimoire then
+        elseif i == 8 and b.count >= 1 and callbacks_ and callbacks_.onOpenGrimoire then
             container:AddChild(CreateWizardBuildingItem(b, i))
         -- 国际物流（index 9）使用特殊行：点击展开国际物流侧边栏
-        elseif i == 9 and callbacks_ and callbacks_.onOpenShipment then
+        elseif i == 9 and b.count >= 1 and callbacks_ and callbacks_.onOpenShipment then
             container:AddChild(CreateShipmentBuildingItem(b, i))
         -- 电商平台（index 11）使用特殊行：点击展开电商平台侧边栏
-        elseif i == 11 and callbacks_ and callbacks_.onOpenECommerce then
+        elseif i == 11 and b.count >= 1 and callbacks_ and callbacks_.onOpenECommerce then
             container:AddChild(CreatePortalBuildingItem(b, i))
         else
             container:AddChild(CreateBuildingItem(b, "bld_", function(self)
@@ -1337,29 +1343,30 @@ function ShopPanel.Create(buildings, clickUpgrades, callbacks, bldUpgrades)
     local buildingItems = {}
 
     for i, b in ipairs(buildings) do
+        -- 小游戏特殊行：仅当建筑 count >= 1 时才显示小游戏入口，否则显示普通购买行
         -- 种植园（index 3）使用特殊行：点击展开侧边栏，独立购买按钮
-        if i == 3 and callbacks.onOpenGarden then
+        if i == 3 and b.count >= 1 and callbacks.onOpenGarden then
             buildingItems[#buildingItems + 1] = CreateGardenBuildingItem(b, i)
         -- 采矿场（index 4）使用特殊行：点击展开挖矿探险侧边栏
-        elseif i == 4 and callbacks.onOpenMining then
+        elseif i == 4 and b.count >= 1 and callbacks.onOpenMining then
             buildingItems[#buildingItems + 1] = CreateMineBuildingItem(b, i)
         -- 制造工厂（index 5）使用特殊行：点击展开制造工厂侧边栏
-        elseif i == 5 and callbacks.onOpenFactory then
+        elseif i == 5 and b.count >= 1 and callbacks.onOpenFactory then
             buildingItems[#buildingItems + 1] = CreateFactoryBuildingItem(b, i)
         -- 商业银行（index 6）使用特殊行：点击展开证券交易所侧边栏
-        elseif i == 6 and callbacks.onOpenStockMarket then
+        elseif i == 6 and b.count >= 1 and callbacks.onOpenStockMarket then
             buildingItems[#buildingItems + 1] = CreateBankBuildingItem(b, i)
         -- 商业地产（index 7）使用特殊行：点击展开万神殿侧边栏
-        elseif i == 7 and callbacks.onOpenPantheon then
+        elseif i == 7 and b.count >= 1 and callbacks.onOpenPantheon then
             buildingItems[#buildingItems + 1] = CreateTempleBuildingItem(b, i)
         -- 研发中心（index 8）使用特殊行：点击展开研发实验室侧边栏
-        elseif i == 8 and callbacks.onOpenGrimoire then
+        elseif i == 8 and b.count >= 1 and callbacks.onOpenGrimoire then
             buildingItems[#buildingItems + 1] = CreateWizardBuildingItem(b, i)
         -- 国际物流（index 9）使用特殊行：点击展开国际物流侧边栏
-        elseif i == 9 and callbacks.onOpenShipment then
+        elseif i == 9 and b.count >= 1 and callbacks.onOpenShipment then
             buildingItems[#buildingItems + 1] = CreateShipmentBuildingItem(b, i)
         -- 电商平台（index 11）使用特殊行：点击展开电商平台侧边栏
-        elseif i == 11 and callbacks.onOpenECommerce then
+        elseif i == 11 and b.count >= 1 and callbacks.onOpenECommerce then
             buildingItems[#buildingItems + 1] = CreatePortalBuildingItem(b, i)
         else
             buildingItems[#buildingItems + 1] = CreateBuildingItem(b, "bld_", function(self)
@@ -1430,6 +1437,18 @@ function ShopPanel.Init(root, buildings, clickUpgrades, bldUpgrades)
     buildingUpgrades_ = bldUpgrades
     uiRoot_ = root
 
+    -- 同步小游戏解锁状态（存档加载后建筑 count 可能已 >= 1）
+    minigameUnlocked_ = {}
+    for idx in pairs(MINIGAME_INDICES) do
+        local b = buildings_[idx]
+        if b and b.count >= 1 then
+            minigameUnlocked_[idx] = true
+        end
+    end
+
+    -- 重建建筑列表以反映当前解锁状态（存档加载后 count 可能已变化）
+    RebuildBuildingList()
+
     CacheBuildingWidgets()
 
     upgradeContainer_ = root:FindById("upgradeBar")
@@ -1444,6 +1463,24 @@ end
 
 function ShopPanel.Refresh()
     if not buildings_ then return end
+
+    -- 检测小游戏建筑解锁状态变化（count 从 0 变 >=1），触发列表重建
+    local needRebuild = false
+    for idx in pairs(MINIGAME_INDICES) do
+        local b = buildings_[idx]
+        if b then
+            local wasUnlocked = minigameUnlocked_[idx]
+            local nowUnlocked = b.count >= 1
+            if nowUnlocked and not wasUnlocked then
+                minigameUnlocked_[idx] = true
+                needRebuild = true
+            end
+        end
+    end
+    if needRebuild then
+        RebuildBuildingList()
+    end
+
     local F = GameState.FormatNumber
     local coins = GameState.coins
     local amt = buyAmount_

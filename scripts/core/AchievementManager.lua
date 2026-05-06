@@ -23,6 +23,7 @@ local CHECK_INTERVAL = 0.5    -- 每 0.5 秒检查一次
 
 -- 回调
 local onUnlock_ = nil         -- function(achievement) 成就解锁时调用
+local ready_ = false          -- 存档加载完成后才允许检查成就
 
 -- 缓存：建筑 id → index 映射
 local buildingIdIndex_ = {}
@@ -37,6 +38,7 @@ function AM.Init()
     milkDecimal_ = 0
     kittenMul_ = 1
     checkCooldown_ = 0
+    ready_ = false
 
     -- 构建建筑 id → index 映射
     for i, b in ipairs(Buildings.buildings) do
@@ -482,6 +484,7 @@ end
 ---@param dt number
 ---@param buildingUpgrades table|nil 建筑效率升级数据
 function AM.Update(dt, buildingUpgrades)
+    if not ready_ then return end
     checkCooldown_ = checkCooldown_ - dt
     if checkCooldown_ > 0 then return end
     checkCooldown_ = CHECK_INTERVAL
@@ -547,7 +550,13 @@ function AM.LoadSaveData(data)
         end
     end
     RecalcMilk()
+    ready_ = true
     print("[AchievementManager] 存档恢复: " .. unlockedCount_ .. " 个成就")
+end
+
+--- 标记成就系统就绪（新玩家无存档时由外部调用）
+function AM.MarkReady()
+    ready_ = true
 end
 
 return AM

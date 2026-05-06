@@ -468,7 +468,8 @@ function Start()
             UI.Label {
                 position = "absolute",
                 left = 6, bottom = 4,
-                text = "v1.0.0",
+                zIndex = 9999,
+                text = "v1.0.4",
                 fontSize = 9,
                 fontColor = { 100, 100, 120, 120 },
                 pointerEvents = "none",
@@ -701,6 +702,8 @@ function Start()
                 print("[SaveSystem] 离线 " .. offlineTime .. " 秒")
             end
         end
+        -- 存档加载完毕（或新玩家），标记成就系统就绪
+        GameManager.GetAchievementManager().MarkReady()
         print("[SaveSystem] 初始化完成, ok=" .. tostring(ok))
     end)
 

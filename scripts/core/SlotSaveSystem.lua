@@ -16,7 +16,7 @@ local SSS = {}
 -- ---------------------------------------------------------------------------
 
 local SLOT_ID        = 1       -- 单槽位，固定为 1
-local SAVE_INTERVAL  = 60      -- 自动保存间隔（秒）
+local SAVE_INTERVAL  = 10      -- 自动保存间隔（秒）
 local DIRTY_DELAY    = 5       -- MarkDirty 延迟合并（秒）
 local CHUNK_SIZE     = 9000    -- 单分片最大字节数（预留 key 开销）
 local MAX_RETRY      = 3       -- 云端保存最大重试次数
@@ -29,6 +29,7 @@ local LOCAL_FILE     = "save_slot1.json"
 
 local initialized_    = false
 local saveConfirmed_  = false   -- 加载/新建成功后为 true，才允许自动保存
+local saveSeq_        = 0       -- 保存序列号，每次成功保存递增
 local playTime_       = 0       -- 累计游戏时长
 local autoSaveTimer_  = 0       -- 自动保存倒计时
 local dirtyTimer_     = -1      -- MarkDirty 延迟倒计时（< 0 表示无脏标记）
@@ -155,11 +156,13 @@ local function SaveToCloud(saveData, onComplete)
     local groups, version, timestamp = SaveBridge.SplitIntoGroups(saveData)
 
     -- 构建 head 索引
+    saveSeq_ = saveSeq_ + 1
     local headData = {
         format    = 1,
         version   = version,
         timestamp = timestamp,
         slotId    = SLOT_ID,
+        saveSeq   = saveSeq_,
         keys      = {},
     }
 
@@ -219,7 +222,7 @@ local function SaveToCloud(saveData, onComplete)
             end
 
             headCache_ = headData
-            print("[SaveSystem] 云端保存成功 (" .. os.date("%H:%M:%S") .. ")")
+            print("[SaveSystem] 云端保存成功 (seq=" .. saveSeq_ .. " " .. os.date("%H:%M:%S") .. ")")
             if onSavedCallback_ then onSavedCallback_() end
             if onComplete then onComplete(true) end
         end,
@@ -259,6 +262,7 @@ local function LoadFromCloud(onComplete)
             end
 
             headCache_ = head
+            saveSeq_ = head.saveSeq or 0
 
             -- 第二步：批量读取所有分组 key
             local batchGet  = clientCloud:BatchGet()
@@ -283,7 +287,17 @@ local function LoadFromCloud(onComplete)
                     for groupName, meta in pairs(groupMeta) do
                         if meta.single then
                             -- 单片：云端自动 JSON 解码为 table
-                            groups[groupName] = values2[GroupKey(groupName)]
+                            local val = values2[GroupKey(groupName)]
+                            -- 校验 checksum
+                            if val and meta.cs then
+                                local json = cjson.encode(val)
+                                local actual = CalcChecksum(json)
+                                if actual ~= meta.cs then
+                                    print("[SaveSystem] 校验失败(单片): " .. groupName
+                                        .. " 期望=" .. meta.cs .. " 实际=" .. actual)
+                                end
+                            end
+                            groups[groupName] = val
                         else
                             -- 多片：拼接 JSON 字符串后解码
                             local parts = {}
@@ -291,6 +305,15 @@ local function LoadFromCloud(onComplete)
                             for ci = 0, meta.chunks - 1 do
                                 local chunk = values2[ChunkKey(groupName, ci)]
                                 if chunk then
+                                    -- 校验每片 checksum
+                                    if meta.cs and meta.cs[ci + 1] then
+                                        local actual = CalcChecksum(chunk)
+                                        if actual ~= meta.cs[ci + 1] then
+                                            print("[SaveSystem] 校验失败(分片): " .. groupName
+                                                .. "_" .. ci .. " 期望=" .. meta.cs[ci + 1]
+                                                .. " 实际=" .. actual)
+                                        end
+                                    end
                                     parts[#parts + 1] = chunk
                                 else
                                     print("[SaveSystem] 缺失分片: " .. groupName .. "_" .. ci)

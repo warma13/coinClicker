@@ -6,6 +6,7 @@
 local MC = require("config.MiningConfig")
 local Buildings = require("config.Buildings")
 local GameState = require("core.GameState")
+local SaveBridge = require("core.SaveBridge")
 
 --- 向全局 buff 列表添加一个 CPS 倍率 buff（同 id 叠加时间）
 ---@param buffDef table { id, name, mul, duration }
@@ -189,6 +190,8 @@ function MM.Init()
     regenTimer_ = 0
     hasMinecart_ = false
     GenerateGrid()
+
+    SaveBridge.Register("mining", MM.GetSaveData, MM.LoadSaveData)
 end
 
 -- ============================================================================

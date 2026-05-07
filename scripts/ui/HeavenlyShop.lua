@@ -38,13 +38,16 @@ local ITEM_HEIGHT = 56
 -- ======== 升级分组定义 ========
 local GROUPS = {
     { title = "品牌传承链", ids = { "legacy", "heavenlyChipSecret", "heavenlyCookieStand", "heavenlyBakery", "heavenlyKey" } },
-    { title = "产量加成", ids = { "heavenlyCookies", "tinOfBiscuits", "boxOfBiscuits", "boxOfMacarons" } },
+    { title = "产量加成", ids = { "heavenlyCookies", "tinOfBiscuits", "boxOfBiscuits", "boxOfMacarons", "industrialKey", "globalOptimize" } },
     { title = "老关系", ids = { "starterKit", "starterKitchen" } },
     { title = "商机加成", ids = { "heavenlyLuck", "lastingFortune" } },
     { title = "签单 & 顾问", ids = { "santasHelpers", "santasMilk" } },
+    { title = "自动化", ids = { "autoClick" } },
+    { title = "规模经济", ids = { "costReduce", "purchaseOpt" } },
     { title = "AI 合伙人", ids = { "howToBakeDragon" } },
     { title = "周期切换", ids = { "seasonSwitcher" } },
     { title = "核心资产槽", ids = { "permSlot1", "permSlot2" } },
+
 }
 
 -- ======== 扁平化数据 ========

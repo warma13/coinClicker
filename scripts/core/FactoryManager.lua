@@ -6,6 +6,7 @@
 local FC = require("config.FactoryConfig")
 local Buildings = require("config.Buildings")
 local GameState = require("core.GameState")
+local SaveBridge = require("core.SaveBridge")
 
 --- 向全局 buff 列表添加一个 CPS 倍率 buff
 ---@param buffDef table { id, name, mul, duration }
@@ -245,6 +246,8 @@ function FM.Init()
     totalDelivered_ = 0
     totalGathered_ = 0
     FillOrders()
+
+    SaveBridge.Register("factory", FM.GetSaveData, FM.LoadSaveData)
 end
 
 -- ============================================================================

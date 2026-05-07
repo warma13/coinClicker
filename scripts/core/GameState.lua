@@ -113,6 +113,33 @@ local State = {
 -- 纯工具函数
 -- ============================================================================
 
+--- 数字后缀表（从高到低排列，每项 = {阈值, 后缀}）
+--- K(10³) → UVg(10⁶⁶)，共 22 级
+local NUMBER_SUFFIXES = {
+    { 1e66, "UVg" },  -- Unvigintillion
+    { 1e63, "Vg" },   -- Vigintillion
+    { 1e60, "Nd" },   -- Novemdecillion
+    { 1e57, "Od" },   -- Octodecillion
+    { 1e54, "Spd" },  -- Septendecillion
+    { 1e51, "Sxd" },  -- Sexdecillion
+    { 1e48, "Qid" },  -- Quindecillion
+    { 1e45, "Qad" },  -- Quattuordecillion
+    { 1e42, "Td" },   -- Tredecillion
+    { 1e39, "Dd" },   -- Duodecillion
+    { 1e36, "Ud" },   -- Undecillion
+    { 1e33, "De" },   -- Decillion
+    { 1e30, "No" },   -- Nonillion
+    { 1e27, "Oc" },   -- Octillion
+    { 1e24, "Sp" },   -- Septillion
+    { 1e21, "Sx" },   -- Sextillion
+    { 1e18, "Qi" },   -- Quintillion
+    { 1e15, "Qa" },   -- Quadrillion
+    { 1e12, "T" },    -- Trillion
+    { 1e9,  "B" },    -- Billion
+    { 1e6,  "M" },    -- Million
+    { 1e3,  "K" },    -- Thousand
+}
+
 --- 格式化大数字显示
 ---@param n number
 ---@return string
@@ -121,35 +148,18 @@ function State.FormatNumber(n)
     if n == math.huge then return "Inf" end
     if n == -math.huge then return "-Inf" end
     if n < 0 then return "-" .. State.FormatNumber(-n) end
-    if n >= 1e33 then
-        return string.format("%.1fDe", n / 1e33)
-    elseif n >= 1e30 then
-        return string.format("%.1fNo", n / 1e30)
-    elseif n >= 1e27 then
-        return string.format("%.1fOc", n / 1e27)
-    elseif n >= 1e24 then
-        return string.format("%.1fSp", n / 1e24)
-    elseif n >= 1e21 then
-        return string.format("%.1fSx", n / 1e21)
-    elseif n >= 1e18 then
-        return string.format("%.1fQi", n / 1e18)
-    elseif n >= 1e15 then
-        return string.format("%.1fQa", n / 1e15)
-    elseif n >= 1e12 then
-        return string.format("%.1fT", n / 1e12)
-    elseif n >= 1e9 then
-        return string.format("%.1fB", n / 1e9)
-    elseif n >= 1e6 then
-        return string.format("%.1fM", n / 1e6)
-    elseif n >= 1e3 then
-        return string.format("%.1fK", n / 1e3)
-    else
-        -- 支持一位小数：有小数部分时显示，整数时不带 .0
-        if n == math.floor(n) then
-            return string.format("%.0f", n)
-        else
-            return string.format("%.1f", n)
+
+    for _, entry in ipairs(NUMBER_SUFFIXES) do
+        if n >= entry[1] then
+            return string.format("%.1f%s", n / entry[1], entry[2])
         end
+    end
+
+    -- 小于 1000：整数不带 .0，有小数保留一位
+    if n == math.floor(n) then
+        return string.format("%.0f", n)
+    else
+        return string.format("%.1f", n)
     end
 end
 

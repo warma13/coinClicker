@@ -7,6 +7,7 @@
 
 local GameState = require("core.GameState")
 local SC        = require("config.StockMarketConfig")
+local SaveBridge = require("core.SaveBridge")
 
 local SM = {}
 
@@ -144,6 +145,8 @@ function SM.Init()
     for i = 1, #SC.loans do
         loanStates_[i] = { active = false, boostRemaining = 0, penaltyRemaining = 0 }
     end
+
+    SaveBridge.Register("stockmarket", SM.GetSaveData, SM.LoadSaveData)
 end
 
 -- ---------------------------------------------------------------------------

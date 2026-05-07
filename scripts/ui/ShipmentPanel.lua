@@ -8,6 +8,7 @@ local UI = require("urhox-libs/UI")
 local GameState = require("core.GameState")
 local SC = require("config.ShipmentConfig")
 
+
 local ShipmentPanel = {}
 
 -- ============================================================================

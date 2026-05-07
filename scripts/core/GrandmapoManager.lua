@@ -6,6 +6,8 @@
 local GameState = require("core.GameState")
 local Buildings = require("config.Buildings")
 local GD = require("config.GrandmapocalypseDefs")
+local SaveBridge = require("core.SaveBridge")
+local WrinklerMgr = require("core.WrinklerManager")
 
 local GM = {}
 
@@ -82,6 +84,17 @@ function GM.Init()
     pledgeTimer_ = 0
     pledgePurchases_ = 0
     hasSacrificialPins_ = false
+
+    -- 自注册存档分组（包含 Wrinkler 子组）
+    SaveBridge.Register("grandmapo",
+        function()
+            return { gm = GM.GetSaveData(), wm = WrinklerMgr.GetSaveData() }
+        end,
+        function(d)
+            GM.LoadSaveData(d and d.gm)
+            WrinklerMgr.LoadSaveData(d and d.wm)
+        end
+    )
 end
 
 function GM.SetOnPhaseChange(fn) onPhaseChange_ = fn end

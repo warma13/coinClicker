@@ -8,7 +8,6 @@ local UI = require("urhox-libs/UI")
 local FloatingText = require("ui.FloatingText")
 local GameState = require("core.GameState")
 local GC = require("config.GrimoireConfig")
-
 local GP = {}
 
 -- 内部引用

@@ -6,6 +6,7 @@
 local GameState = require("core.GameState")
 local SC = require("config.ShipmentConfig")
 local Buildings = require("config.Buildings")
+local SaveBridge = require("core.SaveBridge")
 
 local SM = {}
 
@@ -115,6 +116,8 @@ end
 
 function SM.Init()
     GeneratePendingCargos()
+
+    SaveBridge.Register("shipment", SM.GetSaveData, SM.LoadSaveData)
 end
 
 function SM.Update(dt)

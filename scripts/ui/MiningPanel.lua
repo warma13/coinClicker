@@ -8,7 +8,6 @@ local UI = require("urhox-libs/UI")
 local GameState = require("core.GameState")
 local MC = require("config.MiningConfig")
 local AudioManager = require("core.AudioManager")
-
 local MP = {}
 
 -- 内部引用

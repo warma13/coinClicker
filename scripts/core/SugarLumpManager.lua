@@ -6,6 +6,7 @@
 local GameState = require("core.GameState")
 local Buildings = require("config.Buildings")
 local SD = require("config.SugarLumpDefs")
+local SaveBridge = require("core.SaveBridge")
 
 local SLM = {}
 
@@ -54,6 +55,9 @@ function SLM.Init()
     for i = 1, #Buildings.buildings do
         buildingLevels_[i] = 0
     end
+
+    -- 自注册存档分组（独立顶层 key）
+    SaveBridge.Register("sugarlump", SLM.GetSaveData, SLM.LoadSaveData)
 end
 
 -- ============================================================================
@@ -401,6 +405,7 @@ function SLM.GetSaveData()
         growthTimer = growthTimer_,
         currentType = currentType_ and currentType_.id or nil,
         buildingLevels = levels,
+        savedAt = os.time(),
     }
 end
 
@@ -413,13 +418,44 @@ function SLM.LoadSaveData(data)
     totalHarvested_ = data.totalHarvested or 0
     growthTimer_ = data.growthTimer or 0
 
+    -- 离线时间补偿：将离线期间的时间加到 growthTimer_
+    local offlineAutoDrop = 0
+    if unlocked_ and data.savedAt then
+        local offlineSec = os.time() - data.savedAt
+        if offlineSec > 0 then
+            -- 离线期间可能跨越多个完整周期，每个周期自动掉落 1 个
+            local remaining = growthTimer_ + offlineSec
+            while remaining >= SD.TOTAL_CYCLE do
+                offlineAutoDrop = offlineAutoDrop + 1
+                remaining = remaining - SD.TOTAL_CYCLE
+            end
+            if offlineAutoDrop > 0 then
+                lumps_ = lumps_ + offlineAutoDrop
+                totalHarvested_ = totalHarvested_ + offlineAutoDrop
+                print("[SugarLump] 离线自动掉落 " .. offlineAutoDrop .. " 个人脉")
+            end
+            growthTimer_ = remaining
+            local stageName = growthTimer_ < SD.COALESCING_DURATION and "接触中"
+                or growthTimer_ < SD.COALESCING_DURATION + SD.MATURE_DURATION and "熟识"
+                or "深交"
+            print("[SugarLump] 离线补偿 " .. offlineSec .. " 秒 → growthTimer=" ..
+                  math.floor(growthTimer_) .. "s 阶段=" .. stageName)
+        end
+    end
+
     -- 恢复糖块类型
     currentType_ = nil
-    if data.currentType then
-        for _, t in ipairs(SD.types) do
-            if t.id == data.currentType then
-                currentType_ = t
-                break
+    if offlineAutoDrop > 0 then
+        -- 离线期间经历了完整周期，旧类型已自动掉落，为新周期重新 roll
+        currentType_ = SD.RollType()
+    else
+        -- 未跨周期，恢复存档中保存的类型
+        if data.currentType then
+            for _, t in ipairs(SD.types) do
+                if t.id == data.currentType then
+                    currentType_ = t
+                    break
+                end
             end
         end
     end

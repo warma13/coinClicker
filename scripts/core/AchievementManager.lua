@@ -10,6 +10,7 @@ local Upgrades = require("config.Upgrades")
 local AchievementDefs = require("config.AchievementDefs")
 local KittenUpgrades = require("config.KittenUpgrades")
 local BuildingUpgrades = require("config.BuildingUpgrades")
+local SaveBridge = require("core.SaveBridge")
 
 local AM = {}
 
@@ -46,6 +47,8 @@ function AM.Init()
     end
 
     print("[AchievementManager] 初始化完成，总成就数: " .. AchievementDefs.totalCount)
+
+    SaveBridge.Register("achievements", AM.GetSaveData, AM.LoadSaveData)
 end
 
 --- 设置成就解锁回调

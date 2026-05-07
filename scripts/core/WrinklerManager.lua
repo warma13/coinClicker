@@ -5,6 +5,7 @@
 
 local GameState = require("core.GameState")
 local GD = require("config.GrandmapocalypseDefs")
+local SaveBridge = require("core.SaveBridge")
 
 local WM = {}
 

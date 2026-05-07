@@ -6,6 +6,7 @@
 
 local GameState = require("core.GameState")
 local GC        = require("config.GrimoireConfig")
+local SaveBridge = require("core.SaveBridge")
 
 local GM = {}
 
@@ -41,6 +42,8 @@ function GM.Init()
     globalCooldown_ = 0
     totalCasts_     = 0
     activeBuffs_    = {}
+
+    SaveBridge.Register("grimoire", GM.GetSaveData, GM.LoadSaveData)
 end
 
 -- ---------------------------------------------------------------------------

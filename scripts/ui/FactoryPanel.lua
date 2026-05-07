@@ -7,7 +7,6 @@
 local UI = require("urhox-libs/UI")
 local GameState = require("core.GameState")
 local FC = require("config.FactoryConfig")
-
 local FP = {}
 
 -- 内部引用

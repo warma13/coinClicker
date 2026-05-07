@@ -27,7 +27,6 @@ local FactoryManager = require("core.FactoryManager")
 local ShipmentManager = require("core.ShipmentManager")
 local ECommerceManager = require("core.ECommerceManager")
 local SkillManager = require("core.SkillManager")
-
 -- 拆分出的子模块
 local ProductionCalculator = require("core.ProductionCalculator")
 local LuckyCoinSystem = require("core.LuckyCoinSystem")
@@ -65,6 +64,7 @@ local ui_ = {
     shipmentPanel = nil,
     ecommercePanel = nil,
     skillPanel = nil,
+
 }
 
 -- 面板刷新定时器
@@ -83,6 +83,7 @@ local timers_ = {
     season = 0,
     dragon = 0,
     skill = 0,
+
     shop = 0,
 }
 
@@ -124,37 +125,29 @@ end
 -- UI 注入
 -- ============================================================================
 
---- 注入 UI 模块引用
----@param root table UI 根节点
----@param statsBar table StatsBar 模块
----@param coinArea table CoinArea 模块
----@param shopPanel table ShopPanel 模块
----@param luckyCoin table LuckyCoin 模块
----@param floatingText table FloatingText 模块
----@param coinParticle table CoinParticle 模块
----@param achieveNotify table|nil AchievementNotify 模块
-function GM.SetUI(root, statsBar, coinArea, shopPanel, luckyCoin, floatingText, coinParticle, achieveNotify, wrinklerDisp, researchPnl, sugarDisp, bldLevelPnl, hvnShop, ascPnl, ssnPnl, reindeerDisp, drgnPnl, achPnl)
-    ui_.uiRoot = root
-    ui_.statsBar = statsBar
-    ui_.coinArea = coinArea
-    ui_.shopPanel = shopPanel
-    ui_.luckyCoin = luckyCoin
-    ui_.floatingText = floatingText
-    ui_.coinParticle = coinParticle
-    ui_.achievementNotify = achieveNotify
-    ui_.wrinklerDisplay = wrinklerDisp
-    ui_.researchPanel = researchPnl
-    ui_.sugarLumpDisplay = sugarDisp
-    ui_.buildingLevelPanel = bldLevelPnl
-    ui_.heavenlyShop = hvnShop
-    ui_.ascensionPanel = ascPnl
-    ui_.seasonPanel = ssnPnl
-    ui_.reindeerDisplay = reindeerDisp
-    ui_.dragonPanel = drgnPnl
-    ui_.achievementPanel = achPnl
-
+--- 注册 UI 模块引用（table 传参）
+---@param refs table { uiRoot, statsBar, coinArea, shopPanel, luckyCoin, floatingText, coinParticle, achievementNotify, wrinklerDisplay, researchPanel, sugarLumpDisplay, buildingLevelPanel, heavenlyShop, ascensionPanel, seasonPanel, reindeerDisplay, dragonPanel, achievementPanel }
+function GM.SetUI(refs)
+    ui_.uiRoot              = refs.uiRoot
+    ui_.statsBar            = refs.statsBar
+    ui_.coinArea            = refs.coinArea
+    ui_.shopPanel           = refs.shopPanel
+    ui_.luckyCoin           = refs.luckyCoin
+    ui_.floatingText        = refs.floatingText
+    ui_.coinParticle        = refs.coinParticle
+    ui_.achievementNotify   = refs.achievementNotify
+    ui_.wrinklerDisplay     = refs.wrinklerDisplay
+    ui_.researchPanel       = refs.researchPanel
+    ui_.sugarLumpDisplay    = refs.sugarLumpDisplay
+    ui_.buildingLevelPanel  = refs.buildingLevelPanel
+    ui_.heavenlyShop        = refs.heavenlyShop
+    ui_.ascensionPanel      = refs.ascensionPanel
+    ui_.seasonPanel         = refs.seasonPanel
+    ui_.reindeerDisplay     = refs.reindeerDisplay
+    ui_.dragonPanel         = refs.dragonPanel
+    ui_.achievementPanel    = refs.achievementPanel
     -- 缓存高频访问的 UI 引用（避免每帧 FindById）
-    achieveCountLabel_ = root and root:FindById("achieveCountLabel") or nil
+    achieveCountLabel_ = refs.uiRoot and refs.uiRoot:FindById("achieveCountLabel") or nil
 end
 
 -- ============================================================================

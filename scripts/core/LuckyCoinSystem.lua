@@ -393,7 +393,7 @@ function M.TriggerEffect()
             S.luckyPosY, effect.color or { 255, 215, 0, 255 }, effect.iconImage)
     end
 
-    -- 龙光环特殊效果：Dragon Harvest / Dragonflight
+    -- 龙光环特殊效果：Dragon Harvest / Dragonflight（受 noBuffs 约束）
     if not luckyIsWrath_ then
         if DragonManager.HasDragonHarvest() and math.random() < 0.05 then
             -- Dragon Harvest: CpS × 15 持续 60s

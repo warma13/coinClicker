@@ -1,28 +1,13 @@
 -- ============================================================================
 -- core/SaveBridge.lua
 -- 存档业务桥接层：序列化/反序列化 + 数据分组 + 版本迁移
--- 负责收集所有运行时状态并组织为可存储的数据结构
+-- 自注册模式：各 Manager 在 Init() 时调用 Register() 注册存档回调
 -- ============================================================================
 
 local GameState       = require("core.GameState")
 local Buildings       = require("config.Buildings")
 local Upgrades        = require("config.Upgrades")
 local KittenUpgrades  = require("config.KittenUpgrades")
-local AchievementMgr  = require("core.AchievementManager")
-local AscensionMgr    = require("core.AscensionManager")
-local SugarLumpMgr    = require("core.SugarLumpManager")
-local GrandmapoMgr    = require("core.GrandmapoManager")
-local WrinklerMgr     = require("core.WrinklerManager")
-local SeasonMgr       = require("core.SeasonManager")
-local DragonMgr       = require("core.DragonManager")
-local GardenMgr       = require("core.GardenManager")
-local PantheonMgr     = require("core.PantheonManager")
-local GrimoireMgr     = require("core.GrimoireManager")
-local StockMarketMgr  = require("core.StockMarketManager")
-local MiningMgr       = require("core.MiningManager")
-local FactoryMgr      = require("core.FactoryManager")
-local ShipmentMgr     = require("core.ShipmentManager")
-local ECommerceMgr    = require("core.ECommerceManager")
 
 local SB = {}
 
@@ -30,31 +15,44 @@ local SB = {}
 -- 常量
 -- ---------------------------------------------------------------------------
 
-local CURRENT_VERSION = 1
+local CURRENT_VERSION = 2
 
---- 数据分组名（每组对应一个云端 key）
---- 新增数据时，将其加入对应分组的 Serialize/Deserialize
-local GROUP_NAMES = {
+--- inline 分组名（SaveBridge 自身管理序列化/反序列化的组）
+local INLINE_GROUPS = {
     "core",          -- 核心数值（金币、点击等）
     "leaderboard",   -- 排行榜追踪数据
     "buildings",     -- 建筑数量与累计产出
     "upgrades",      -- 点击/管理顾问/建筑效率升级
-    "achievements",  -- 成就系统
-    "progression",   -- 飞升系统
-    "grandmapo",     -- 奶奶末日 + 皱巴虫
-    "seasons",       -- 季节系统
-    "dragon",        -- 龙系统
-    "misc",          -- 糖块 + 技能 + 其他
+    "misc",          -- 技能 + 体力 + buff（糖块通过注册）
     "settings",      -- 音量等用户设置
-    "garden",        -- 项目孵化园
-    "pantheon",      -- 商业顾问团（万神殿）
-    "grimoire",      -- 研发实验室（魔法书）
-    "stockmarket",   -- 证券交易所（股票市场）
-    "mining",        -- 挖矿探险
-    "factory",       -- 制造工厂
-    "shipment",      -- 国际物流
-    "ecommerce",     -- 电商平台
 }
+
+-- ---------------------------------------------------------------------------
+-- 自注册机制
+-- ---------------------------------------------------------------------------
+
+--- 注册表：{ name = { serialize = fn, deserialize = fn } }
+local registry_ = {}
+
+--- 注册顺序（保证序列化/分组顺序稳定）
+local registryOrder_ = {}
+
+--- 注册一个存档分组
+--- 各 Manager 在自己的 Init() 中调用此方法，无需 SaveBridge require Manager
+---@param name string          分组名（如 "achievements", "dragon"）
+---@param serializeFn function  返回该组存档数据的函数
+---@param deserializeFn function 接受存档数据并恢复状态的函数
+function SB.Register(name, serializeFn, deserializeFn)
+    if registry_[name] then
+        print("[SaveBridge] 警告: 分组 '" .. name .. "' 重复注册，覆盖旧注册")
+    else
+        registryOrder_[#registryOrder_ + 1] = name
+    end
+    registry_[name] = {
+        serialize   = serializeFn,
+        deserialize = deserializeFn,
+    }
+end
 
 -- ---------------------------------------------------------------------------
 -- 内部状态
@@ -80,10 +78,17 @@ function SB.GetVersion()
     return CURRENT_VERSION
 end
 
---- 获取分组名列表
+--- 获取分组名列表（inline + 注册的，合并后返回）
 ---@return string[]
 function SB.GetGroupNames()
-    return GROUP_NAMES
+    local names = {}
+    for _, n in ipairs(INLINE_GROUPS) do
+        names[#names + 1] = n
+    end
+    for _, n in ipairs(registryOrder_) do
+        names[#names + 1] = n
+    end
+    return names
 end
 
 -- ============================================================================
@@ -185,8 +190,8 @@ function SB.Serialize()
         end
     end
 
-    -- -------- 组装完整存档 --------
-    return {
+    -- -------- 组装 inline 分组 --------
+    local result = {
         version   = CURRENT_VERSION,
         timestamp = os.time(),
         core      = core,
@@ -197,16 +202,7 @@ function SB.Serialize()
             kitten   = kittenUpg,
             building = bldUpg,
         },
-        achievements = AchievementMgr.GetSaveData(),
-        progression  = AscensionMgr.GetSaveData(),
-        grandmapo    = {
-            gm = GrandmapoMgr.GetSaveData(),
-            wm = WrinklerMgr.GetSaveData(),
-        },
-        seasons = SeasonMgr.GetState(),
-        dragon  = DragonMgr.GetSaveData(),
         misc    = {
-            sugarLump = SugarLumpMgr.GetSaveData(),
             skills    = skills,
             stamina   = S.stamina,
             buffs     = #buffs > 0 and buffs or nil,
@@ -215,15 +211,17 @@ function SB.Serialize()
             bgmVol = S.settings.bgmVolume,
             sfxVol = S.settings.sfxVolume,
         },
-        garden = GardenMgr.GetSaveData(),
-        pantheon = PantheonMgr.GetSaveData(),
-        grimoire = GrimoireMgr.GetSaveData(),
-        stockmarket = StockMarketMgr.GetSaveData(),
-        mining = MiningMgr.GetSaveData(),
-        factory = FactoryMgr.GetSaveData(),
-        shipment = ShipmentMgr.GetSaveData(),
-        ecommerce = ECommerceMgr.GetSaveData(),
     }
+
+    -- -------- 注册分组：调用各 Manager 的序列化回调 --------
+    for _, name in ipairs(registryOrder_) do
+        local entry = registry_[name]
+        if entry and entry.serialize then
+            result[name] = entry.serialize()
+        end
+    end
+
+    return result
 end
 
 -- ============================================================================
@@ -368,22 +366,18 @@ function SB.Deserialize(data)
     S.settings.bgmVolume = stg.bgmVol or 0.4
     S.settings.sfxVolume = stg.sfxVol or 1.0
 
-    -- -------- 各 Manager --------
-    AchievementMgr.LoadSaveData(data.achievements)
-    AscensionMgr.LoadSaveData(data.progression)
-    GrandmapoMgr.LoadSaveData(data.grandmapo and data.grandmapo.gm)
-    WrinklerMgr.LoadSaveData(data.grandmapo and data.grandmapo.wm)
-    SeasonMgr.SetState(data.seasons)
-    DragonMgr.LoadSaveData(data.dragon)
-    SugarLumpMgr.LoadSaveData(data.misc and data.misc.sugarLump)
-    GardenMgr.LoadSaveData(data.garden)
-    PantheonMgr.LoadSaveData(data.pantheon)
-    GrimoireMgr.LoadSaveData(data.grimoire)
-    StockMarketMgr.LoadSaveData(data.stockmarket)
-    MiningMgr.LoadSaveData(data.mining)
-    FactoryMgr.LoadSaveData(data.factory)
-    ShipmentMgr.LoadSaveData(data.shipment)
-    ECommerceMgr.LoadSaveData(data.ecommerce)
+    -- -------- 旧存档兼容：sugarLump 原先嵌套在 misc 内 --------
+    if not data.sugarlump and miscData.sugarLump then
+        data.sugarlump = miscData.sugarLump
+    end
+
+    -- -------- 注册分组：调用各 Manager 的反序列化回调 --------
+    for _, name in ipairs(registryOrder_) do
+        local entry = registry_[name]
+        if entry and entry.deserialize then
+            entry.deserialize(data[name])
+        end
+    end
 
     print("[SaveBridge] 反序列化完成")
 end
@@ -399,7 +393,8 @@ end
 ---@return number timestamp
 function SB.SplitIntoGroups(saveData)
     local groups = {}
-    for _, name in ipairs(GROUP_NAMES) do
+    local allNames = SB.GetGroupNames()
+    for _, name in ipairs(allNames) do
         groups[name] = saveData[name]
     end
     return groups, saveData.version or CURRENT_VERSION, saveData.timestamp or os.time()
@@ -415,7 +410,8 @@ function SB.MergeGroups(groups, version, timestamp)
         version   = version or CURRENT_VERSION,
         timestamp = timestamp or os.time(),
     }
-    for _, name in ipairs(GROUP_NAMES) do
+    local allNames = SB.GetGroupNames()
+    for _, name in ipairs(allNames) do
         data[name] = groups[name]
     end
     return data
@@ -439,12 +435,13 @@ end
 
 --- 迁移函数表：MIGRATIONS[oldVersion] 负责 oldVersion → oldVersion+1
 local MIGRATIONS = {
-    -- 示例（未来使用）：
-    -- [1] = function(data)
-    --     -- v1 → v2: 添加新字段的默认值
-    --     data.misc = data.misc or {}
-    --     data.misc.newFeature = data.misc.newFeature or {}
-    -- end,
+    [1] = function(data)
+        -- v1 → v2: 老玩家补偿 3 个人脉币
+        data.sugarlump = data.sugarlump or {}
+        data.sugarlump.lumps = (data.sugarlump.lumps or 0) + 3
+        data.sugarlump.totalHarvested = (data.sugarlump.totalHarvested or 0) + 3
+        print("[SaveBridge] v1→v2 迁移: 补偿 3 个人脉币")
+    end,
 }
 
 --- 逐级运行版本迁移

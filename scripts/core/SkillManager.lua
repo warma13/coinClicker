@@ -6,7 +6,6 @@
 
 local GameState = require("core.GameState")
 local SkillDefs = require("config.SkillDefs")
-
 local SM = {}
 
 -- 内部状态
@@ -50,7 +49,7 @@ end
 function SM.Update(dt)
     local skills = GameState.skills
 
-    -- ── 疾速签单 ──
+    -- ── 疾速签单（noClick 约束时跳过自动点击） ──
     local spdSt = skills.speedClick
     if spdSt and spdSt.active and spdSt.timer > 0 then
         spdSt.timer = spdSt.timer - dt

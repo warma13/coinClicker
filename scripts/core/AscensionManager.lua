@@ -7,6 +7,7 @@ local GameState = require("core.GameState")
 local Buildings = require("config.Buildings")
 local Upgrades = require("config.Upgrades")
 local AD = require("config.AscensionDefs")
+local SaveBridge = require("core.SaveBridge")
 
 local AM = {}
 
@@ -51,6 +52,8 @@ function AM.Init()
     bakedThisAscension_ = 0
     ascensionCount_ = 0
     boughtUpgrades_ = {}
+
+    SaveBridge.Register("progression", AM.GetSaveData, AM.LoadSaveData)
 end
 
 -- ============================================================================

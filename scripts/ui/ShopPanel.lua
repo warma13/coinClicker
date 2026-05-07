@@ -36,6 +36,7 @@ local minigameUnlocked_ = {}  -- { [index] = true/false } 上次已知解锁状�
 
 -- ======== 升级图标缓存 ========
 local iconCache_ = {}  -- { [id_string] = widget }
+local iconAffordCache_ = {} -- { [id_string] = bool } 上次 afford 状态
 
 -- ======== 颜色常量 ========
 local COLOR_AFFORD_BG       = { 45, 50, 70, 255 }
@@ -467,16 +468,20 @@ local function BuildUnifiedIconBar(container)
     container:AddChild(grid)
     lastVisibleSnap_ = MakeVisibleSnap(bldVisible, clkVisible)
 
-    -- 重建图标缓存
+    -- 重建图标缓存 + afford 缓存
     iconCache_ = {}
+    iconAffordCache_ = {}
+    local coins = GameState.coins
     if uiRoot_ then
         for _, u in ipairs(bldVisible) do
             local kid = "bu_" .. u.buildingIndex .. "_" .. u.tierIndex
             iconCache_[kid] = uiRoot_:FindById(kid)
+            iconAffordCache_[kid] = u.bought or (coins >= u.cost)
         end
         for _, info in ipairs(clkVisible) do
             local kid = "cu_" .. info.index
             iconCache_[kid] = uiRoot_:FindById(kid)
+            iconAffordCache_[kid] = coins >= info.upgrade.baseCost
         end
     end
 end
@@ -503,8 +508,36 @@ local function RefreshIconBar()
 
     for _, u in ipairs(bldVisible) do
         if not u.bought then
+            local kid = "bu_" .. u.buildingIndex .. "_" .. u.tierIndex
             local canAfford = coins >= u.cost
-            local icon = iconCache_["bu_" .. u.buildingIndex .. "_" .. u.tierIndex]
+            if canAfford ~= iconAffordCache_[kid] then
+                iconAffordCache_[kid] = canAfford
+                local icon = iconCache_[kid]
+                if icon then
+                    if canAfford then
+                        icon:SetStyle({
+                            backgroundColor = { 60, 55, 30, 255 },
+                            borderColor = { 255, 215, 0, 220 },
+                            opacity = 1.0,
+                        })
+                    else
+                        icon:SetStyle({
+                            backgroundColor = { 35, 35, 50, 255 },
+                            borderColor = { 60, 60, 80, 100 },
+                            opacity = 0.5,
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    for _, info in ipairs(clkVisible) do
+        local kid = "cu_" .. info.index
+        local canAfford = coins >= info.upgrade.baseCost
+        if canAfford ~= iconAffordCache_[kid] then
+            iconAffordCache_[kid] = canAfford
+            local icon = iconCache_[kid]
             if icon then
                 if canAfford then
                     icon:SetStyle({
@@ -519,26 +552,6 @@ local function RefreshIconBar()
                         opacity = 0.5,
                     })
                 end
-            end
-        end
-    end
-
-    for _, info in ipairs(clkVisible) do
-        local canAfford = coins >= info.upgrade.baseCost
-        local icon = iconCache_["cu_" .. info.index]
-        if icon then
-            if canAfford then
-                icon:SetStyle({
-                    backgroundColor = { 60, 55, 30, 255 },
-                    borderColor = { 255, 215, 0, 220 },
-                    opacity = 1.0,
-                })
-            else
-                icon:SetStyle({
-                    backgroundColor = { 35, 35, 50, 255 },
-                    borderColor = { 60, 60, 80, 100 },
-                    opacity = 0.5,
-                })
             end
         end
     end
@@ -592,34 +605,74 @@ local function RefreshAmountButtons()
     end
 end
 
---- 创建种植园特殊行（点击展开孵化园侧边栏，独立购买按钮）
-local function CreateGardenBuildingItem(item, buildingIndex)
+-- ============================================================================
+-- 特殊建筑（小游戏入口）配置表 + 统一工厂函数
+-- ============================================================================
+
+--- 特殊建筑差异化配置
+--- key = 建筑索引, value = 差异化样式/回调
+local SPECIAL_BUILDING_CONFIGS = {
+    [3]  = { emoji = "🌱", callback = "onOpenGarden",
+             bg = { 35, 55, 40, 255 },  border = { 80, 160, 90, 150 },
+             descColor = { 140, 160, 140, 200 }, countColor = { 180, 200, 180, 180 },
+             buyBg = { 50, 80, 50, 255 }, buyBorder = { 100, 200, 100, 180 } },
+    [4]  = { emoji = "⛏️", callback = "onOpenMining",
+             bg = { 45, 38, 28, 255 },  border = { 180, 140, 60, 150 },
+             descColor = { 170, 150, 120, 200 }, countColor = { 200, 180, 140, 180 },
+             buyBg = { 65, 55, 35, 255 }, buyBorder = { 200, 160, 60, 180 } },
+    [5]  = { emoji = "🏭", callback = "onOpenFactory",
+             bg = { 35, 40, 55, 255 },  border = { 80, 130, 200, 150 },
+             descColor = { 120, 150, 190, 200 }, countColor = { 160, 180, 210, 180 },
+             buyBg = { 40, 55, 75, 255 }, buyBorder = { 90, 150, 220, 180 } },
+    [6]  = { emoji = "📈", callback = "onOpenStockMarket",
+             bg = { 30, 45, 55, 255 },  border = { 60, 140, 180, 150 },
+             descColor = { 120, 160, 180, 200 }, countColor = { 160, 190, 210, 180 },
+             buyBg = { 35, 60, 70, 255 }, buyBorder = { 80, 170, 200, 180 } },
+    [7]  = { emoji = "🏛️", callback = "onOpenPantheon",
+             bg = { 50, 42, 30, 255 },  border = { 180, 150, 60, 150 },
+             descColor = { 160, 150, 120, 200 }, countColor = { 200, 190, 150, 180 },
+             buyBg = { 70, 60, 30, 255 }, buyBorder = { 200, 170, 60, 180 } },
+    [8]  = { emoji = "🔮", callback = "onOpenGrimoire",
+             bg = { 38, 30, 55, 255 },  border = { 130, 90, 200, 150 },
+             descColor = { 150, 130, 180, 200 }, countColor = { 180, 170, 210, 180 },
+             buyBg = { 55, 40, 80, 255 }, buyBorder = { 150, 100, 220, 180 } },
+    [9]  = { emoji = "🐫", callback = "onOpenShipment",
+             bg = { 30, 45, 55, 255 },  border = { 60, 160, 180, 150 },
+             descColor = { 120, 170, 180, 200 }, countColor = { 150, 195, 210, 180 },
+             buyBg = { 35, 60, 70, 255 }, buyBorder = { 70, 180, 200, 180 } },
+    [11] = { emoji = "🌀", callback = "onOpenECommerce",
+             bg = { 40, 30, 55, 255 },  border = { 150, 90, 220, 150 },
+             descColor = { 150, 120, 190, 200 }, countColor = { 170, 150, 210, 180 },
+             buyBg = { 50, 35, 70, 255 }, buyBorder = { 150, 90, 220, 180 } },
+}
+
+--- 通用特殊建筑行创建函数（配置驱动，替代 8 个独立函数）
+---@param item table 建筑数据
+---@param buildingIndex number 建筑索引
+---@param cfg table SPECIAL_BUILDING_CONFIGS[index]
+local function CreateSpecialBuildingItem(item, buildingIndex, cfg)
     local amt = buyAmount_
     local cost = GameState.GetBulkCost(item, amt)
     local canAfford = GameState.coins >= cost
     local F = GameState.FormatNumber
     local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
+    local cbName = cfg.callback
 
     return UI.Panel {
         id = "bld_" .. item.id,
         width = "100%", flexDirection = "row", alignItems = "center",
         padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 35, 55, 40, 255 },
-        borderColor = { 80, 160, 90, 150 },
+        backgroundColor = cfg.bg,
+        borderColor = cfg.border,
         pointerEvents = "auto",
-        -- 点击行 → 展开孵化园侧边栏
         onTap = function()
-            if callbacks_ and callbacks_.onOpenGarden then
-                callbacks_.onOpenGarden()
+            if callbacks_ and callbacks_[cbName] then
+                callbacks_[cbName]()
             end
         end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
+        onLongPressStart = function(event) Tooltip.Show(tooltipFn, event.y) end,
         onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
+        onPointerEnter = function(event) Tooltip.Show(tooltipFn, event.y) end,
         onPointerLeave = function() Tooltip.Hide() end,
         children = {
             UI.Panel {
@@ -632,25 +685,22 @@ local function CreateGardenBuildingItem(item, buildingIndex)
                     flexDirection = "row", alignItems = "center", gap = 4,
                     children = {
                         UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "🌱", fontSize = 10 },
+                        UI.Label { text = cfg.emoji, fontSize = 10 },
                     },
                 },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 140, 160, 140, 200 } },
+                UI.Label { text = item.desc, fontSize = 10, fontColor = cfg.descColor },
             } },
             UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
                 UI.Panel {
                     flexDirection = "row", alignItems = "center", gap = 2,
                     paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
                     borderRadius = 6,
-                    backgroundColor = canAfford and { 50, 80, 50, 255 } or { 40, 40, 55, 255 },
+                    backgroundColor = canAfford and cfg.buyBg or { 40, 40, 55, 255 },
                     borderWidth = 1,
-                    borderColor = canAfford and { 100, 200, 100, 180 } or { 60, 60, 80, 100 },
+                    borderColor = canAfford and cfg.buyBorder or { 60, 60, 80, 100 },
                     pointerEvents = "auto",
                     onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
+                        if event and event.stopPropagation then event:stopPropagation() end
                         if callbacks_ and callbacks_.onBuyBuilding then
                             callbacks_.onBuyBuilding(buildingIndex)
                         end
@@ -665,560 +715,7 @@ local function CreateGardenBuildingItem(item, buildingIndex)
                 },
                 UI.Label { id = "bld_count_" .. item.id,
                     text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 180, 200, 180, 180 } },
-            } },
-        },
-    }
-end
-
---- 创建商业银行特殊行（点击展开证券交易所侧边栏，独立购买按钮）
-local function CreateBankBuildingItem(item, buildingIndex)
-    local amt = buyAmount_
-    local cost = GameState.GetBulkCost(item, amt)
-    local canAfford = GameState.coins >= cost
-    local F = GameState.FormatNumber
-    local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
-
-    return UI.Panel {
-        id = "bld_" .. item.id,
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 30, 45, 55, 255 },
-        borderColor = { 60, 140, 180, 150 },
-        pointerEvents = "auto",
-        -- 点击行 → 展开证券交易所侧边栏
-        onTap = function()
-            if callbacks_ and callbacks_.onOpenStockMarket then
-                callbacks_.onOpenStockMarket()
-            end
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
-        children = {
-            UI.Panel {
-                width = 36, height = 36,
-                backgroundImage = item.iconImage,
-                backgroundFit = "contain",
-            },
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 4,
-                    children = {
-                        UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "📈", fontSize = 10 },
-                    },
-                },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 120, 160, 180, 200 } },
-            } },
-            UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 2,
-                    paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
-                    borderRadius = 6,
-                    backgroundColor = canAfford and { 35, 60, 70, 255 } or { 40, 40, 55, 255 },
-                    borderWidth = 1,
-                    borderColor = canAfford and { 80, 170, 200, 180 } or { 60, 60, 80, 100 },
-                    pointerEvents = "auto",
-                    onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
-                        if callbacks_ and callbacks_.onBuyBuilding then
-                            callbacks_.onBuyBuilding(buildingIndex)
-                        end
-                    end,
-                    children = {
-                        UI.Panel { width = 14, height = 14,
-                            backgroundImage = "image/金币.png", backgroundFit = "contain" },
-                        UI.Label { id = "bld_cost_" .. item.id,
-                            text = F(cost), fontSize = 12,
-                            fontColor = canAfford and COLOR_COST_GREEN or COLOR_COST_RED },
-                    },
-                },
-                UI.Label { id = "bld_count_" .. item.id,
-                    text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 160, 190, 210, 180 } },
-            } },
-        },
-    }
-end
-
---- 创建商业地产特殊行（点击展开万神殿侧边栏，独立购买按钮）
-local function CreateTempleBuildingItem(item, buildingIndex)
-    local amt = buyAmount_
-    local cost = GameState.GetBulkCost(item, amt)
-    local canAfford = GameState.coins >= cost
-    local F = GameState.FormatNumber
-    local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
-
-    return UI.Panel {
-        id = "bld_" .. item.id,
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 50, 42, 30, 255 },
-        borderColor = { 180, 150, 60, 150 },
-        pointerEvents = "auto",
-        -- 点击行 → 展开万神殿侧边栏
-        onTap = function()
-            if callbacks_ and callbacks_.onOpenPantheon then
-                callbacks_.onOpenPantheon()
-            end
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
-        children = {
-            UI.Panel {
-                width = 36, height = 36,
-                backgroundImage = item.iconImage,
-                backgroundFit = "contain",
-            },
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 4,
-                    children = {
-                        UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "🏛️", fontSize = 10 },
-                    },
-                },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 160, 150, 120, 200 } },
-            } },
-            UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 2,
-                    paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
-                    borderRadius = 6,
-                    backgroundColor = canAfford and { 70, 60, 30, 255 } or { 40, 40, 55, 255 },
-                    borderWidth = 1,
-                    borderColor = canAfford and { 200, 170, 60, 180 } or { 60, 60, 80, 100 },
-                    pointerEvents = "auto",
-                    onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
-                        if callbacks_ and callbacks_.onBuyBuilding then
-                            callbacks_.onBuyBuilding(buildingIndex)
-                        end
-                    end,
-                    children = {
-                        UI.Panel { width = 14, height = 14,
-                            backgroundImage = "image/金币.png", backgroundFit = "contain" },
-                        UI.Label { id = "bld_cost_" .. item.id,
-                            text = F(cost), fontSize = 12,
-                            fontColor = canAfford and COLOR_COST_GREEN or COLOR_COST_RED },
-                    },
-                },
-                UI.Label { id = "bld_count_" .. item.id,
-                    text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 200, 190, 150, 180 } },
-            } },
-        },
-    }
-end
-
---- 创建采矿场特殊行（点击展开挖矿探险侧边栏，独立购买按钮）
-local function CreateMineBuildingItem(item, buildingIndex)
-    local amt = buyAmount_
-    local cost = GameState.GetBulkCost(item, amt)
-    local canAfford = GameState.coins >= cost
-    local F = GameState.FormatNumber
-    local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
-
-    return UI.Panel {
-        id = "bld_" .. item.id,
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 45, 38, 28, 255 },
-        borderColor = { 180, 140, 60, 150 },
-        pointerEvents = "auto",
-        -- 点击行 → 展开挖矿探险侧边栏
-        onTap = function()
-            if callbacks_ and callbacks_.onOpenMining then
-                callbacks_.onOpenMining()
-            end
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
-        children = {
-            UI.Panel {
-                width = 36, height = 36,
-                backgroundImage = item.iconImage,
-                backgroundFit = "contain",
-            },
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 4,
-                    children = {
-                        UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "⛏️", fontSize = 10 },
-                    },
-                },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 170, 150, 120, 200 } },
-            } },
-            UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 2,
-                    paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
-                    borderRadius = 6,
-                    backgroundColor = canAfford and { 65, 55, 35, 255 } or { 40, 40, 55, 255 },
-                    borderWidth = 1,
-                    borderColor = canAfford and { 200, 160, 60, 180 } or { 60, 60, 80, 100 },
-                    pointerEvents = "auto",
-                    onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
-                        if callbacks_ and callbacks_.onBuyBuilding then
-                            callbacks_.onBuyBuilding(buildingIndex)
-                        end
-                    end,
-                    children = {
-                        UI.Panel { width = 14, height = 14,
-                            backgroundImage = "image/金币.png", backgroundFit = "contain" },
-                        UI.Label { id = "bld_cost_" .. item.id,
-                            text = F(cost), fontSize = 12,
-                            fontColor = canAfford and COLOR_COST_GREEN or COLOR_COST_RED },
-                    },
-                },
-                UI.Label { id = "bld_count_" .. item.id,
-                    text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 200, 180, 140, 180 } },
-            } },
-        },
-    }
-end
-
---- 创建制造工厂特殊行（点击展开制造工厂侧边栏，独立购买按钮）
-local function CreateFactoryBuildingItem(item, buildingIndex)
-    local amt = buyAmount_
-    local cost = GameState.GetBulkCost(item, amt)
-    local canAfford = GameState.coins >= cost
-    local F = GameState.FormatNumber
-    local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
-
-    return UI.Panel {
-        id = "bld_" .. item.id,
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 35, 40, 55, 255 },
-        borderColor = { 80, 130, 200, 150 },
-        pointerEvents = "auto",
-        -- 点击行 → 展开制造工厂侧边栏
-        onTap = function()
-            if callbacks_ and callbacks_.onOpenFactory then
-                callbacks_.onOpenFactory()
-            end
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
-        children = {
-            UI.Panel {
-                width = 36, height = 36,
-                backgroundImage = item.iconImage,
-                backgroundFit = "contain",
-            },
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 4,
-                    children = {
-                        UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "🏭", fontSize = 10 },
-                    },
-                },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 120, 150, 190, 200 } },
-            } },
-            UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 2,
-                    paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
-                    borderRadius = 6,
-                    backgroundColor = canAfford and { 40, 55, 75, 255 } or { 40, 40, 55, 255 },
-                    borderWidth = 1,
-                    borderColor = canAfford and { 90, 150, 220, 180 } or { 60, 60, 80, 100 },
-                    pointerEvents = "auto",
-                    onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
-                        if callbacks_ and callbacks_.onBuyBuilding then
-                            callbacks_.onBuyBuilding(buildingIndex)
-                        end
-                    end,
-                    children = {
-                        UI.Panel { width = 14, height = 14,
-                            backgroundImage = "image/金币.png", backgroundFit = "contain" },
-                        UI.Label { id = "bld_cost_" .. item.id,
-                            text = F(cost), fontSize = 12,
-                            fontColor = canAfford and COLOR_COST_GREEN or COLOR_COST_RED },
-                    },
-                },
-                UI.Label { id = "bld_count_" .. item.id,
-                    text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 160, 180, 210, 180 } },
-            } },
-        },
-    }
-end
-
---- 创建国际物流特殊行（点击展开国际物流侧边栏，独立购买按钮）
-local function CreateShipmentBuildingItem(item, buildingIndex)
-    local amt = buyAmount_
-    local cost = GameState.GetBulkCost(item, amt)
-    local canAfford = GameState.coins >= cost
-    local F = GameState.FormatNumber
-    local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
-
-    return UI.Panel {
-        id = "bld_" .. item.id,
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 30, 45, 55, 255 },
-        borderColor = { 60, 160, 180, 150 },
-        pointerEvents = "auto",
-        -- 点击行 → 展开国际物流侧边栏
-        onTap = function()
-            if callbacks_ and callbacks_.onOpenShipment then
-                callbacks_.onOpenShipment()
-            end
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
-        children = {
-            UI.Panel {
-                width = 36, height = 36,
-                backgroundImage = item.iconImage,
-                backgroundFit = "contain",
-            },
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 4,
-                    children = {
-                        UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "🐫", fontSize = 10 },
-                    },
-                },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 120, 170, 180, 200 } },
-            } },
-            UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 2,
-                    paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
-                    borderRadius = 6,
-                    backgroundColor = canAfford and { 35, 60, 70, 255 } or { 40, 40, 55, 255 },
-                    borderWidth = 1,
-                    borderColor = canAfford and { 70, 180, 200, 180 } or { 60, 60, 80, 100 },
-                    pointerEvents = "auto",
-                    onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
-                        if callbacks_ and callbacks_.onBuyBuilding then
-                            callbacks_.onBuyBuilding(buildingIndex)
-                        end
-                    end,
-                    children = {
-                        UI.Panel { width = 14, height = 14,
-                            backgroundImage = "image/金币.png", backgroundFit = "contain" },
-                        UI.Label { id = "bld_cost_" .. item.id,
-                            text = F(cost), fontSize = 12,
-                            fontColor = canAfford and COLOR_COST_GREEN or COLOR_COST_RED },
-                    },
-                },
-                UI.Label { id = "bld_count_" .. item.id,
-                    text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 150, 195, 210, 180 } },
-            } },
-        },
-    }
-end
-
---- 创建电商平台特殊行（点击展开电商平台侧边栏，独立购买按钮）
-local function CreatePortalBuildingItem(item, buildingIndex)
-    local amt = buyAmount_
-    local cost = GameState.GetBulkCost(item, amt)
-    local canAfford = GameState.coins >= cost
-    local F = GameState.FormatNumber
-    local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
-
-    return UI.Panel {
-        id = "bld_" .. item.id,
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 40, 30, 55, 255 },
-        borderColor = { 150, 90, 220, 150 },
-        pointerEvents = "auto",
-        -- 点击行 → 展开电商平台侧边栏
-        onTap = function()
-            if callbacks_ and callbacks_.onOpenECommerce then
-                callbacks_.onOpenECommerce()
-            end
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
-        children = {
-            UI.Panel {
-                width = 36, height = 36,
-                backgroundImage = item.iconImage,
-                backgroundFit = "contain",
-            },
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 4,
-                    children = {
-                        UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "🌀", fontSize = 10 },
-                    },
-                },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 150, 120, 190, 200 } },
-            } },
-            UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 2,
-                    paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
-                    borderRadius = 6,
-                    backgroundColor = canAfford and { 50, 35, 70, 255 } or { 40, 40, 55, 255 },
-                    borderWidth = 1,
-                    borderColor = canAfford and { 150, 90, 220, 180 } or { 60, 60, 80, 100 },
-                    pointerEvents = "auto",
-                    onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
-                        if callbacks_ and callbacks_.onBuyBuilding then
-                            callbacks_.onBuyBuilding(buildingIndex)
-                        end
-                    end,
-                    children = {
-                        UI.Panel { width = 14, height = 14,
-                            backgroundImage = "image/金币.png", backgroundFit = "contain" },
-                        UI.Label { id = "bld_cost_" .. item.id,
-                            text = F(cost), fontSize = 12,
-                            fontColor = canAfford and COLOR_COST_GREEN or COLOR_COST_RED },
-                    },
-                },
-                UI.Label { id = "bld_count_" .. item.id,
-                    text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 170, 150, 210, 180 } },
-            } },
-        },
-    }
-end
-
---- 创建研发中心特殊行（点击展开研发实验室侧边栏，独立购买按钮）
-local function CreateWizardBuildingItem(item, buildingIndex)
-    local amt = buyAmount_
-    local cost = GameState.GetBulkCost(item, amt)
-    local canAfford = GameState.coins >= cost
-    local F = GameState.FormatNumber
-    local tooltipFn = BuildingTooltipConfig(item, buildingIndex)
-
-    return UI.Panel {
-        id = "bld_" .. item.id,
-        width = "100%", flexDirection = "row", alignItems = "center",
-        padding = 8, gap = 8, borderRadius = 8, borderWidth = 1,
-        backgroundColor = { 38, 30, 55, 255 },
-        borderColor = { 130, 90, 200, 150 },
-        pointerEvents = "auto",
-        -- 点击行 → 展开研发实验室侧边栏
-        onTap = function()
-            if callbacks_ and callbacks_.onOpenGrimoire then
-                callbacks_.onOpenGrimoire()
-            end
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
-        children = {
-            UI.Panel {
-                width = 36, height = 36,
-                backgroundImage = item.iconImage,
-                backgroundFit = "contain",
-            },
-            UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 4,
-                    children = {
-                        UI.Label { text = item.name, fontSize = 13, fontColor = { 230, 230, 240, 255 } },
-                        UI.Label { text = "🔮", fontSize = 10 },
-                    },
-                },
-                UI.Label { text = item.desc, fontSize = 10, fontColor = { 150, 130, 180, 200 } },
-            } },
-            UI.Panel { alignItems = "flex-end", gap = 2, children = {
-                -- 购买按钮（独立可点击区域）
-                UI.Panel {
-                    flexDirection = "row", alignItems = "center", gap = 2,
-                    paddingLeft = 8, paddingRight = 8, paddingTop = 4, paddingBottom = 4,
-                    borderRadius = 6,
-                    backgroundColor = canAfford and { 55, 40, 80, 255 } or { 40, 40, 55, 255 },
-                    borderWidth = 1,
-                    borderColor = canAfford and { 150, 100, 220, 180 } or { 60, 60, 80, 100 },
-                    pointerEvents = "auto",
-                    onTap = function(self, event)
-                        if event and event.stopPropagation then
-                            event:stopPropagation()
-                        end
-                        if callbacks_ and callbacks_.onBuyBuilding then
-                            callbacks_.onBuyBuilding(buildingIndex)
-                        end
-                    end,
-                    children = {
-                        UI.Panel { width = 14, height = 14,
-                            backgroundImage = "image/金币.png", backgroundFit = "contain" },
-                        UI.Label { id = "bld_cost_" .. item.id,
-                            text = F(cost), fontSize = 12,
-                            fontColor = canAfford and COLOR_COST_GREEN or COLOR_COST_RED },
-                    },
-                },
-                UI.Label { id = "bld_count_" .. item.id,
-                    text = "x" .. item.count, fontSize = 11,
-                    fontColor = { 180, 170, 210, 180 } },
+                    fontColor = cfg.countColor },
             } },
         },
     }
@@ -1231,31 +728,9 @@ local function RebuildBuildingList()
     if not container then return end
     container:RemoveAllChildren()
     for i, b in ipairs(buildings_) do
-        -- 小游戏特殊行：仅当建筑 count >= 1 时才显示小游戏入口，否则显示普通购买行
-        -- 种植园（index 3）使用特殊行：点击展开侧边栏，独立购买按钮
-        if i == 3 and b.count >= 1 and callbacks_ and callbacks_.onOpenGarden then
-            container:AddChild(CreateGardenBuildingItem(b, i))
-        -- 采矿场（index 4）使用特殊行：点击展开挖矿探险侧边栏
-        elseif i == 4 and b.count >= 1 and callbacks_ and callbacks_.onOpenMining then
-            container:AddChild(CreateMineBuildingItem(b, i))
-        -- 制造工厂（index 5）使用特殊行：点击展开制造工厂侧边栏
-        elseif i == 5 and b.count >= 1 and callbacks_ and callbacks_.onOpenFactory then
-            container:AddChild(CreateFactoryBuildingItem(b, i))
-        -- 商业银行（index 6）使用特殊行：点击展开证券交易所侧边栏
-        elseif i == 6 and b.count >= 1 and callbacks_ and callbacks_.onOpenStockMarket then
-            container:AddChild(CreateBankBuildingItem(b, i))
-        -- 商业地产（index 7）使用特殊行：点击展开万神殿侧边栏
-        elseif i == 7 and b.count >= 1 and callbacks_ and callbacks_.onOpenPantheon then
-            container:AddChild(CreateTempleBuildingItem(b, i))
-        -- 研发中心（index 8）使用特殊行：点击展开研发实验室侧边栏
-        elseif i == 8 and b.count >= 1 and callbacks_ and callbacks_.onOpenGrimoire then
-            container:AddChild(CreateWizardBuildingItem(b, i))
-        -- 国际物流（index 9）使用特殊行：点击展开国际物流侧边栏
-        elseif i == 9 and b.count >= 1 and callbacks_ and callbacks_.onOpenShipment then
-            container:AddChild(CreateShipmentBuildingItem(b, i))
-        -- 电商平台（index 11）使用特殊行：点击展开电商平台侧边栏
-        elseif i == 11 and b.count >= 1 and callbacks_ and callbacks_.onOpenECommerce then
-            container:AddChild(CreatePortalBuildingItem(b, i))
+        local cfg = SPECIAL_BUILDING_CONFIGS[i]
+        if cfg and b.count >= 1 and callbacks_ and callbacks_[cfg.callback] then
+            container:AddChild(CreateSpecialBuildingItem(b, i, cfg))
         else
             container:AddChild(CreateBuildingItem(b, "bld_", function(self)
                 if callbacks_ then callbacks_.onBuyBuilding(i) end
@@ -1343,31 +818,9 @@ function ShopPanel.Create(buildings, clickUpgrades, callbacks, bldUpgrades)
     local buildingItems = {}
 
     for i, b in ipairs(buildings) do
-        -- 小游戏特殊行：仅当建筑 count >= 1 时才显示小游戏入口，否则显示普通购买行
-        -- 种植园（index 3）使用特殊行：点击展开侧边栏，独立购买按钮
-        if i == 3 and b.count >= 1 and callbacks.onOpenGarden then
-            buildingItems[#buildingItems + 1] = CreateGardenBuildingItem(b, i)
-        -- 采矿场（index 4）使用特殊行：点击展开挖矿探险侧边栏
-        elseif i == 4 and b.count >= 1 and callbacks.onOpenMining then
-            buildingItems[#buildingItems + 1] = CreateMineBuildingItem(b, i)
-        -- 制造工厂（index 5）使用特殊行：点击展开制造工厂侧边栏
-        elseif i == 5 and b.count >= 1 and callbacks.onOpenFactory then
-            buildingItems[#buildingItems + 1] = CreateFactoryBuildingItem(b, i)
-        -- 商业银行（index 6）使用特殊行：点击展开证券交易所侧边栏
-        elseif i == 6 and b.count >= 1 and callbacks.onOpenStockMarket then
-            buildingItems[#buildingItems + 1] = CreateBankBuildingItem(b, i)
-        -- 商业地产（index 7）使用特殊行：点击展开万神殿侧边栏
-        elseif i == 7 and b.count >= 1 and callbacks.onOpenPantheon then
-            buildingItems[#buildingItems + 1] = CreateTempleBuildingItem(b, i)
-        -- 研发中心（index 8）使用特殊行：点击展开研发实验室侧边栏
-        elseif i == 8 and b.count >= 1 and callbacks.onOpenGrimoire then
-            buildingItems[#buildingItems + 1] = CreateWizardBuildingItem(b, i)
-        -- 国际物流（index 9）使用特殊行：点击展开国际物流侧边栏
-        elseif i == 9 and b.count >= 1 and callbacks.onOpenShipment then
-            buildingItems[#buildingItems + 1] = CreateShipmentBuildingItem(b, i)
-        -- 电商平台（index 11）使用特殊行：点击展开电商平台侧边栏
-        elseif i == 11 and b.count >= 1 and callbacks.onOpenECommerce then
-            buildingItems[#buildingItems + 1] = CreatePortalBuildingItem(b, i)
+        local cfg = SPECIAL_BUILDING_CONFIGS[i]
+        if cfg and b.count >= 1 and callbacks[cfg.callback] then
+            buildingItems[#buildingItems + 1] = CreateSpecialBuildingItem(b, i, cfg)
         else
             buildingItems[#buildingItems + 1] = CreateBuildingItem(b, "bld_", function(self)
                 callbacks.onBuyBuilding(i)
@@ -1375,11 +828,16 @@ function ShopPanel.Create(buildings, clickUpgrades, callbacks, bldUpgrades)
         end
     end
 
+    -- 安全区右侧偏移（背景延伸到边缘，内容向内缩进）
+    local safeInsets = UI.GetSafeAreaInsets()
+    local safeRight = safeInsets.right
+
     return UI.Panel {
         id = "shopPanel", width = "30%", flexDirection = "column",
         backgroundColor = { 30, 30, 45, 255 },
         borderColor = { 255, 200, 50, 40 },
         borderWidth = { 0, 0, 0, 1 },
+        paddingRight = safeRight,
         children = {
             -- 一键购买升级按钮行
             UI.Panel {
@@ -1506,19 +964,30 @@ function ShopPanel.Refresh()
             if c.costLabel then
                 c.costLabel:SetFontColor(canAfford and COLOR_COST_GREEN or COLOR_COST_RED)
             end
-            c.btn:SetStyle({
-                backgroundColor = canAfford and COLOR_AFFORD_BG or COLOR_UNAFFORD_BG,
-                borderColor = canAfford and COLOR_AFFORD_BORDER or COLOR_UNAFFORD_BORDER,
-            })
+            -- 特殊建筑保持自定义颜色，普通建筑用通用颜色
+            local cfg = SPECIAL_BUILDING_CONFIGS[i]
+            if cfg and b.count >= 1 then
+                -- 特殊建筑行颜色不随 afford 变化，始终使用配置色
+            else
+                c.btn:SetStyle({
+                    backgroundColor = canAfford and COLOR_AFFORD_BG or COLOR_UNAFFORD_BG,
+                    borderColor = canAfford and COLOR_AFFORD_BORDER or COLOR_UNAFFORD_BORDER,
+                })
+            end
         elseif canAfford ~= c.lastAfford then
             c.lastAfford = canAfford
             if c.costLabel then
                 c.costLabel:SetFontColor(canAfford and COLOR_COST_GREEN or COLOR_COST_RED)
             end
-            c.btn:SetStyle({
-                backgroundColor = canAfford and COLOR_AFFORD_BG or COLOR_UNAFFORD_BG,
-                borderColor = canAfford and COLOR_AFFORD_BORDER or COLOR_UNAFFORD_BORDER,
-            })
+            local cfg = SPECIAL_BUILDING_CONFIGS[i]
+            if cfg and b.count >= 1 then
+                -- 特殊建筑行颜色不随 afford 变化
+            else
+                c.btn:SetStyle({
+                    backgroundColor = canAfford and COLOR_AFFORD_BG or COLOR_UNAFFORD_BG,
+                    borderColor = canAfford and COLOR_AFFORD_BORDER or COLOR_UNAFFORD_BORDER,
+                })
+            end
         end
 
         ::continue::

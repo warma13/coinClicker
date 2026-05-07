@@ -225,6 +225,57 @@ AD.heavenlyUpgrades = {
         prereq = "permSlot1",
         permSlot = true,
     },
+
+    -- ===== 产量加成扩展 =====
+    {
+        id = "industrialKey",
+        name = "产业秘钥",
+        iconImage = "image/icon_industry_key.png",
+        desc = "总产量 +15%",
+        cost = 500000,
+        prereq = "tinOfBiscuits",
+        productionMul = 0.15,
+    },
+    {
+        id = "globalOptimize",
+        name = "全球化优势",
+        iconImage = "image/icon_global_opt.png",
+        desc = "总产量 +20%",
+        cost = 5000000,
+        prereq = "industrialKey",
+        productionMul = 0.20,
+    },
+
+    -- ===== 自动化分支 =====
+    {
+        id = "autoClick",
+        name = "自动签单系统",
+        iconImage = "image/icon_auto_click.png",
+        desc = "光标自动点击速率 ×2",
+        cost = 111111,
+        prereq = "santasHelpers",
+        cursorSpeedMul = 2,
+    },
+
+    -- ===== 经济分支 =====
+    {
+        id = "costReduce",
+        name = "规模经济",
+        iconImage = "image/icon_cost_reduce.png",
+        desc = "所有建筑价格 -3%",
+        cost = 111111,
+        prereq = "heavenlyCookieStand",
+        buildingCostMul = 0.97,
+    },
+    {
+        id = "purchaseOpt",
+        name = "采购优化",
+        iconImage = "image/icon_purchase_opt.png",
+        desc = "所有建筑价格 -5%",
+        cost = 11111111,
+        prereq = "costReduce",
+        buildingCostMul = 0.95,
+    },
 }
 
 --- 通过 id 查找经验商店升级

@@ -14,7 +14,6 @@ local AchievementManager = require("core.AchievementManager")
 local SeasonManager = require("core.SeasonManager")
 local PantheonManager = require("core.PantheonManager")
 local GrimoireManager = require("core.GrimoireManager")
-
 local M = {}
 
 --- 注册所有购买相关函数到 GM 表上
@@ -254,15 +253,18 @@ function M.Setup(GM, ctx)
         end
     end
 
-    --- 一键购买所有建筑（每种建筑买最大可购买量，考虑折扣）
+    --- 一键购买所有建筑（优先购买高级建筑，考虑折扣）
     function GM.OnBuyAllBuildings()
         local costMul = (1 - SeasonManager.GetCostReduction()) * GameState.buffBuildingCostMul
         if PantheonManager.IsUnlocked() then
             costMul = costMul * PantheonManager.GetBuildingCostMultiplier()
         end
         local totalBought = 0
+        local n = #Buildings.buildings
 
-        for i, building in ipairs(Buildings.buildings) do
+        -- 从最高级建筑往低级遍历，优先将金币投入高产出建筑
+        for i = n, 1, -1 do
+            local building = Buildings.buildings[i]
             -- 计算该建筑最大可购买量
             local maxAmt = 0
             local spent = 0.0

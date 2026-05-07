@@ -5,6 +5,7 @@
 
 local GameState = require("core.GameState")
 local GC        = require("config.GardenConfig")
+local SaveBridge = require("core.SaveBridge")
 
 local GM = {}
 
@@ -98,6 +99,8 @@ function GM.Init()
             discoveredSeeds_[s.id] = true
         end
     end
+
+    SaveBridge.Register("garden", GM.GetSaveData, GM.LoadSaveData)
 end
 
 -- ---------------------------------------------------------------------------

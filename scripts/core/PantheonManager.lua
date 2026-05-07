@@ -6,6 +6,7 @@
 
 local GameState = require("core.GameState")
 local PC        = require("config.PantheonConfig")
+local SaveBridge = require("core.SaveBridge")
 
 local PM = {}
 
@@ -32,6 +33,8 @@ local onSlotChanged_ = nil  ---@type fun()|nil
 function PM.Init()
     slotSpirits_ = { nil, nil, nil }
     slotCooldowns_ = { 0, 0, 0 }
+
+    SaveBridge.Register("pantheon", PM.GetSaveData, PM.LoadSaveData)
 end
 
 -- ---------------------------------------------------------------------------

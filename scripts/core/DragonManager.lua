@@ -7,6 +7,7 @@
 local GameState = require("core.GameState")
 local Buildings = require("config.Buildings")
 local DD = require("config.DragonDefs")
+local SaveBridge = require("core.SaveBridge")
 
 local DM = {}
 
@@ -57,6 +58,8 @@ function DM.Init()
     dropsUnlocked_ = false
     dropRotateTimer_ = 0
     currentDropIndex_ = 1
+
+    SaveBridge.Register("dragon", DM.GetSaveData, DM.LoadSaveData)
 end
 
 -- ============================================================================

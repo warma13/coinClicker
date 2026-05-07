@@ -5,6 +5,7 @@
 
 local GameState = require("core.GameState")
 local SD = require("config.SeasonDefs")
+local SaveBridge = require("core.SaveBridge")
 
 local SM = {}
 
@@ -66,6 +67,8 @@ function SM.Init()
 
     -- 检查自然季节
     SM.CheckNaturalSeason()
+
+    SaveBridge.Register("seasons", SM.GetState, SM.SetState)
 end
 
 -- ============================================================================

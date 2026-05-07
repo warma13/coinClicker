@@ -1,6 +1,6 @@
 -- ============================================================================
 -- ui/SugarLumpDisplay.lua
--- 人脉显示组件：顶部小图标 + 时间 + 鼠标悬浮浮窗（Cookie Clicker 风格）
+-- 人脉显示组件：顶部小图标 + 点击弹出浮窗 + 浮窗内收获/关闭按钮
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
@@ -17,16 +17,20 @@ local widget_ = nil            -- 顶部小图标面板
 local lumpImage_ = nil         -- 人脉图标
 local countLabel_ = nil        -- 持有数量
 local timeLabel_ = nil         -- 倒计时
-local tooltip_ = nil           -- 悬浮浮窗
+local tooltip_ = nil           -- 浮窗
 local tooltipType_ = nil       -- 浮窗：类型
 local tooltipStage_ = nil      -- 浮窗：阶段
 local tooltipTime_ = nil       -- 浮窗：时间
 local tooltipTotal_ = nil      -- 浮窗：累计
 local tooltipHint_ = nil       -- 浮窗：提示
+local harvestBtn_ = nil        -- 浮窗：收获按钮
+local confirmOverlay_ = nil    -- 确认弹窗遮罩
+local backdropOverlay_ = nil   -- 点击外部关闭的透明遮罩
 local manager_ = nil
 local onHarvestClick_ = nil
 
 local visible_ = false
+local tooltipOpen_ = false     -- 浮窗是否打开
 local parentNode_ = nil
 
 local LUMP_IMAGE = "image/人脉.png"
@@ -47,33 +51,203 @@ local function FormatHMS(seconds)
 end
 
 -- ============================================================================
+-- 关闭浮窗
+-- ============================================================================
+local function CloseTooltip()
+    if tooltip_ then
+        tooltip_:SetVisible(false)
+    end
+    if backdropOverlay_ then
+        backdropOverlay_:SetVisible(false)
+    end
+    tooltipOpen_ = false
+end
+
+local function OpenTooltip()
+    if tooltipOpen_ then return end
+    SLD.RefreshTooltip()
+    if tooltip_ then
+        tooltip_:SetVisible(true)
+    end
+    if backdropOverlay_ then
+        backdropOverlay_:SetVisible(true)
+    end
+    tooltipOpen_ = true
+end
+
+-- ============================================================================
+-- 关闭确认弹窗
+-- ============================================================================
+local function CloseConfirm()
+    if confirmOverlay_ then
+        confirmOverlay_:SetVisible(false)
+    end
+end
+
+-- ============================================================================
+-- 执行收获
+-- ============================================================================
+local function DoHarvest()
+    CloseConfirm()
+    CloseTooltip()
+    if onHarvestClick_ then
+        onHarvestClick_()
+    end
+end
+
+-- ============================================================================
+-- 点击收获按钮
+-- ============================================================================
+local function OnHarvestBtnClick()
+    if not manager_ then return end
+    local stage = manager_.GetStage()
+
+    if stage == SD.STAGE_COALESCING then
+        -- 接触中阶段不可收获
+        return
+    end
+
+    if stage == SD.STAGE_RIPE then
+        -- 深交阶段直接收获
+        DoHarvest()
+    else
+        -- 熟识阶段弹确认
+        if confirmOverlay_ then
+            confirmOverlay_:SetVisible(true)
+        end
+    end
+end
+
+-- ============================================================================
+-- 创建确认弹窗（全屏遮罩 + 居中对话框）
+-- ============================================================================
+local function CreateConfirmOverlay()
+    confirmOverlay_ = UI.Panel {
+        id = "sugarConfirmOverlay",
+        position = "absolute",
+        top = 0, left = 0,
+        width = "100%", height = "100%",
+        backgroundColor = { 0, 0, 0, 160 },
+        justifyContent = "center",
+        alignItems = "center",
+        zIndex = 1000,
+        visible = false,
+        -- 点击遮罩关闭
+        onTap = function()
+            CloseConfirm()
+        end,
+        children = {
+            UI.Panel {
+                width = 260,
+                backgroundColor = { 35, 30, 50, 250 },
+                borderRadius = 12,
+                borderWidth = 1,
+                borderColor = { 255, 180, 60, 180 },
+                padding = 16,
+                flexDirection = "column",
+                alignItems = "center",
+                gap = 10,
+                -- 阻止事件冒泡到遮罩
+                onTap = function() end,
+                children = {
+                    UI.Label {
+                        text = "⚠️ 提前收获提示",
+                        fontSize = 14,
+                        fontWeight = "bold",
+                        fontColor = { 255, 200, 80, 255 },
+                    },
+                    UI.Label {
+                        text = "当前处于「已熟识」阶段\n收获有 50% 概率少得 1 个人脉\n\n等到「深交」阶段收获\n有 50% 概率多得 1 个人脉",
+                        fontSize = 11,
+                        fontColor = { 220, 200, 240, 220 },
+                        textAlign = "center",
+                        lineHeight = 1.5,
+                    },
+                    -- 按钮行
+                    UI.Panel {
+                        flexDirection = "row",
+                        gap = 12,
+                        marginTop = 4,
+                        children = {
+                            UI.Button {
+                                text = "取消",
+                                width = 90,
+                                height = 32,
+                                fontSize = 12,
+                                variant = "ghost",
+                                fontColor = { 180, 180, 200, 255 },
+                                onClick = function()
+                                    CloseConfirm()
+                                end,
+                            },
+                            UI.Button {
+                                text = "仍然收获",
+                                width = 100,
+                                height = 32,
+                                fontSize = 12,
+                                variant = "primary",
+                                onClick = function()
+                                    DoHarvest()
+                                end,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+    return confirmOverlay_
+end
+
+-- ============================================================================
 -- 创建 UI
 -- ============================================================================
 
 function SLD.CreateWidget()
-    -- 悬浮浮窗（默认隐藏）
+    -- 浮窗
     tooltip_ = UI.Panel {
         id = "sugarTooltip",
         position = "absolute",
         top = 52,
         left = 0,
-        width = 200,
-        backgroundColor = { 20, 18, 30, 240 },
-        borderRadius = 8,
+        width = 220,
+        backgroundColor = { 20, 18, 30, 245 },
+        borderRadius = 10,
         borderWidth = 1,
-        borderColor = { 100, 80, 140, 180 },
-        padding = 10,
+        borderColor = { 100, 80, 140, 200 },
+        padding = 12,
         flexDirection = "column",
         gap = 5,
         visible = false,
         zIndex = 100,
-        pointerEvents = "none",
+        pointerEvents = "auto",
+        -- 阻止点击冒泡到 widget_ 导致关闭
+        onTap = function() end,
         children = {
+            -- 关闭按钮（右上角）
+            UI.Panel {
+                position = "absolute",
+                top = 4, right = 6,
+                pointerEvents = "auto",
+                children = {
+                    UI.Button {
+                        text = "✕",
+                        width = 24, height = 24,
+                        fontSize = 12,
+                        variant = "ghost",
+                        fontColor = { 180, 160, 200, 200 },
+                        onClick = function()
+                            CloseTooltip()
+                        end,
+                    },
+                },
+            },
             UI.Label {
                 id = "ttType",
                 text = "",
-                fontSize = 12,
+                fontSize = 13,
                 fontColor = { 255, 215, 0, 255 },
+                fontWeight = "bold",
             },
             UI.Label {
                 id = "ttStage",
@@ -107,15 +281,35 @@ function SLD.CreateWidget()
             },
             UI.Label {
                 id = "ttDesc",
-                text = "人脉每22小时积累一轮\n成熟后点击图标即可收获\n可用于产业升级(+1%CPS/级)\n持有人脉也有加成(+1%/条)",
+                text = "人脉每22小时积累一轮\n成熟后点击收获按钮收获\n可用于产业升级(+1%CPS/级)\n持有人脉也有加成(+1%/条)",
                 fontSize = 9,
                 fontColor = { 140, 140, 160, 160 },
                 lineHeight = 1.4,
             },
+            -- 收获按钮
+            UI.Panel {
+                width = "100%",
+                marginTop = 4,
+                alignItems = "center",
+                children = {
+                    UI.Button {
+                        id = "ttHarvestBtn",
+                        text = "收获人脉",
+                        width = "100%",
+                        height = 34,
+                        fontSize = 12,
+                        fontWeight = "bold",
+                        variant = "primary",
+                        onClick = function()
+                            OnHarvestBtnClick()
+                        end,
+                    },
+                },
+            },
         },
     }
 
-    -- 顶部小图标（left 跟随侧边栏宽度）
+    -- 顶部小图标
     local dpr = graphics:GetDPR()
     local logW = graphics:GetWidth() / dpr
     local logH = graphics:GetHeight() / dpr
@@ -131,34 +325,12 @@ function SLD.CreateWidget()
         alignItems = "center",
         pointerEvents = "auto",
         zIndex = 10,
-        -- 严格点击判定：短按收获，长按不触发点击
+        -- 点击图标 → toggle 浮窗
         onTap = function()
-            if onHarvestClick_ then
-                onHarvestClick_()
-            end
-        end,
-        -- 长按显示浮窗
-        onLongPressStart = function()
-            if tooltip_ then
-                SLD.RefreshTooltip()
-                tooltip_:SetVisible(true)
-            end
-        end,
-        onLongPressEnd = function()
-            if tooltip_ then
-                tooltip_:SetVisible(false)
-            end
-        end,
-        -- 桌面端悬浮显示
-        onPointerEnter = function()
-            if tooltip_ then
-                SLD.RefreshTooltip()
-                tooltip_:SetVisible(true)
-            end
-        end,
-        onPointerLeave = function()
-            if tooltip_ then
-                tooltip_:SetVisible(false)
+            if tooltipOpen_ then
+                CloseTooltip()
+            else
+                OpenTooltip()
             end
         end,
         children = {
@@ -192,7 +364,7 @@ function SLD.CreateWidget()
                 fontColor = { 180, 180, 200, 160 },
                 textAlign = "center",
             },
-            -- 浮窗挂在这里（相对定位）
+            -- 浮窗挂在这里
             tooltip_,
         },
     }
@@ -219,6 +391,29 @@ function SLD.Init(root, manager, harvestCallback)
     tooltipTime_ = root:FindById("ttTime")
     tooltipTotal_ = root:FindById("ttTotal")
     tooltipHint_ = root:FindById("ttHint")
+    harvestBtn_ = root:FindById("ttHarvestBtn")
+
+    -- 创建点击外部关闭的透明遮罩
+    backdropOverlay_ = UI.Panel {
+        id = "sugarBackdrop",
+        position = "absolute",
+        top = 0, left = 0,
+        width = "100%", height = "100%",
+        backgroundColor = { 0, 0, 0, 1 },  -- 几乎全透明，仅捕获点击
+        zIndex = 9,  -- 在 widget_(zIndex=10) 之下，覆盖其他 UI
+        visible = false,
+        pointerEvents = "auto",
+        onTap = function()
+            CloseTooltip()
+        end,
+    }
+    root:AddChild(backdropOverlay_)
+
+    -- 创建确认弹窗并挂到 uiRoot
+    CreateConfirmOverlay()
+    if confirmOverlay_ then
+        root:AddChild(confirmOverlay_)
+    end
 end
 
 -- ============================================================================
@@ -240,11 +435,14 @@ function SLD.Show(parent)
         tooltipTime_ = uiRoot_:FindById("ttTime")
         tooltipTotal_ = uiRoot_:FindById("ttTotal")
         tooltipHint_ = uiRoot_:FindById("ttHint")
+        harvestBtn_ = uiRoot_:FindById("ttHarvestBtn")
     end
 end
 
 function SLD.Hide()
     if not visible_ or not widget_ or not parentNode_ then return end
+    CloseTooltip()
+    CloseConfirm()
     parentNode_:RemoveChild(widget_)
     visible_ = false
 end
@@ -290,6 +488,11 @@ function SLD.Refresh()
         else
             lumpImage_:SetStyle({ opacity = 1.0 })
         end
+    end
+
+    -- 浮窗打开时刷新收获按钮状态和内容
+    if tooltipOpen_ then
+        SLD.RefreshTooltip()
     end
 end
 
@@ -350,9 +553,29 @@ function SLD.RefreshTooltip()
         if stage == SD.STAGE_COALESCING then
             tooltipHint_:SetText("人脉尚在积累中…")
         elseif stage == SD.STAGE_MATURE then
-            tooltipHint_:SetText("点击图标收获人脉")
+            tooltipHint_:SetText("可以收获，但深交后收益更高")
         elseif stage == SD.STAGE_RIPE then
-            tooltipHint_:SetText("点击图标收获人脉")
+            tooltipHint_:SetText("✨ 最佳收获时机！")
+        end
+    end
+
+    -- 收获按钮状态
+    if harvestBtn_ then
+        if stage == SD.STAGE_COALESCING then
+            harvestBtn_:SetText("积累中…")
+            harvestBtn_:SetStyle({
+                opacity = 0.4,
+            })
+        elseif stage == SD.STAGE_MATURE then
+            harvestBtn_:SetText("提前收获")
+            harvestBtn_:SetStyle({
+                opacity = 1.0,
+            })
+        else
+            harvestBtn_:SetText("✨ 收获人脉")
+            harvestBtn_:SetStyle({
+                opacity = 1.0,
+            })
         end
     end
 end

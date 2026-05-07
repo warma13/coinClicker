@@ -6,6 +6,7 @@
 local EC = require("config.ECommerceConfig")
 local Buildings = require("config.Buildings")
 local GameState = require("core.GameState")
+local SaveBridge = require("core.SaveBridge")
 
 --- 向全局 buff 列表添加一个 CPS 倍率 buff（同 id 叠加时间）
 ---@param buffDef table { id, name, mul, duration }
@@ -136,6 +137,8 @@ function EM.Init()
     totalSold_ = 0
     refreshTimer_ = EC.ITEM_REFRESH_INTERVAL
     FillProducts()
+
+    SaveBridge.Register("ecommerce", EM.GetSaveData, EM.LoadSaveData)
 end
 
 -- ============================================================================

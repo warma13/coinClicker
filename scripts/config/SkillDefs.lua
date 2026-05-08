@@ -14,8 +14,8 @@ SkillDefs.speedClick = {
     desc     = "激活后极速自动签单半小时",
     icon     = "image/skill_speed.png",
     maxLevel = 10,
-    baseCost = 30000,
-    costMul  = 3,
+    baseCost = 10e15,
+    costMul  = 8,
     staminaBase = 150,
     staminaPerLv = 15,
     -- 每级参数: duration=持续秒(固定1800=30分钟), rate=每秒点击次数(随等级提升)
@@ -42,8 +42,8 @@ SkillDefs.cpsDouble = {
     desc     = "激活后每秒产出翻倍，持续半小时",
     icon     = "image/skill_cps.png",
     maxLevel = 10,
-    baseCost = 20000,
-    costMul  = 3,
+    baseCost = 5e15,
+    costMul  = 8,
     staminaBase = 100,
     staminaPerLv = 10,
     -- 每级参数: duration=持续秒(固定1800=30分钟), multiplier=CPS倍率(随等级提升)

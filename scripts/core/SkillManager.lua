@@ -47,7 +47,13 @@ end
 
 ---@param dt number
 function SM.Update(dt)
-    local skills = GameState.skills
+    local S = GameState
+    local skills = S.skills
+
+    -- ── 体力自动恢复（浮点累加，CoinArea 用小数部分算倒计时） ──
+    if S.stamina < S.staminaMax then
+        S.stamina = math.min(S.staminaMax, S.stamina + dt * S.staminaRegenRate)
+    end
 
     -- ── 疾速签单（noClick 约束时跳过自动点击） ──
     local spdSt = skills.speedClick
@@ -103,10 +109,13 @@ function SM.GetCpsMultiplier()
 end
 
 -- ============================================================================
--- 看广告激活技能（无CD）
+-- 看广告叠加技能时间
 -- ============================================================================
 
---- 消耗体力激活技能
+--- 每次看广告增加的时间（秒）= 30分钟
+local AD_BONUS_SECONDS = 1800
+
+--- 通过看广告为技能叠加时间（可反复叠加）
 ---@param skillId string
 ---@param onDone function|nil 完成回调(success)
 function SM.ActivateWithAd(skillId, onDone)
@@ -122,39 +131,37 @@ function SM.ActivateWithAd(skillId, onDone)
         if onDone then onDone(false) end
         return
     end
-    if st.active then
-        if onDone then onDone(false) end
-        return
-    end
-    -- 体力不足
-    local staCost = SkillDefs.GetStaminaCost(def, st.level)
-    if S.stamina < staCost then
-        print("[Skill] 体力不足: " .. S.stamina .. "/" .. staCost)
-        if onDone then onDone(false) end
-        return
-    end
 
-    -- 消耗体力
-    S.stamina = S.stamina - staCost
-    SM._DoActivate(skillId)
+    -- 直接叠加时间（不消耗体力）
+    SM.AddSkillTime(skillId, AD_BONUS_SECONDS)
     if onDone then onDone(true) end
 end
 
---- 内部：实际激活逻辑
-function SM._DoActivate(skillId)
+--- 为技能叠加指定时间（秒），可在已激活时叠加
+---@param skillId string
+---@param seconds number 增加的秒数
+function SM.AddSkillTime(skillId, seconds)
     local st = GameState.skills[skillId]
     local def = SkillDefs[skillId]
-    if not st or not def then return end
+    if not st or not def or st.level <= 0 then return end
 
-    local params = def.levels[st.level]
-    if not params or not params.duration then return end
+    if st.active then
+        -- 已激活：叠加时间
+        st.timer = st.timer + seconds
+        print("[Skill] " .. def.name .. " 叠加: +" .. seconds .. "秒, 总剩余: " .. string.format("%.0f", st.timer) .. "秒")
+    else
+        -- 未激活：激活并设置时间
+        st.active = true
+        st.timer = seconds
+        if skillId == "speedClick" then speedClickAccum_ = 0 end
+        print("[Skill] " .. def.name .. " 激活: " .. seconds .. "秒")
+    end
+end
 
-    st.active = true
-    st.timer = params.duration
-
-    if skillId == "speedClick" then speedClickAccum_ = 0 end
-
-    print("[Skill] " .. def.name .. " 激活: " .. params.duration .. "秒")
+--- 获取每次看广告增加的秒数
+---@return number
+function SM.GetAdBonusSeconds()
+    return AD_BONUS_SECONDS
 end
 
 -- ============================================================================

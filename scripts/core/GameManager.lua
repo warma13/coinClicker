@@ -64,6 +64,7 @@ local ui_ = {
     shipmentPanel = nil,
     ecommercePanel = nil,
     skillPanel = nil,
+    inventoryPanel = nil,
 
 }
 
@@ -146,6 +147,7 @@ function GM.SetUI(refs)
     ui_.reindeerDisplay     = refs.reindeerDisplay
     ui_.dragonPanel         = refs.dragonPanel
     ui_.achievementPanel    = refs.achievementPanel
+    ui_.inventoryPanel      = refs.inventoryPanel
     -- 缓存高频访问的 UI 引用（避免每帧 FindById）
     achieveCountLabel_ = refs.uiRoot and refs.uiRoot:FindById("achieveCountLabel") or nil
 end
@@ -179,6 +181,7 @@ function GM.RefreshAllUI()
         ui_.coinArea.RefreshFormula()
     end
     if ui_.shopPanel then
+        ui_.shopPanel.MarkIconBarDirty()
         ui_.shopPanel.Refresh()
     end
     if ui_.achievementPanel and ui_.achievementPanel.IsVisible() then
@@ -508,12 +511,11 @@ function GM.Update(dt)
     timers_.shop = timers_.shop - dt
     if timers_.shop <= 0 then
         timers_.shop = 0.3
-        local currentFloor = math.floor(S.coins)
-        if currentFloor ~= S.lastRefreshCoins then
-            S.lastRefreshCoins = currentFloor
-            if ui_.shopPanel then
-                ui_.shopPanel.Refresh()
-            end
+        if ui_.shopPanel then
+            -- 标记图标栏脏，确保新解锁的升级能及时出现
+            ui_.shopPanel.MarkIconBarDirty()
+            -- 每次都刷新（图标栏 afford 检查 + 建筑列表增量更新）
+            ui_.shopPanel.Refresh()
         end
     end
 

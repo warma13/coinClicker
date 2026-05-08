@@ -19,6 +19,7 @@ local SIDEBAR_ITEMS = {
     { iconImage = "image/侧栏_周期_20260414105505.png",   label = "周期",   color = { 100, 200, 130 } },
     { iconImage = "image/侧栏_AI_20260414105511.png",     label = "AI",     color = { 220, 170, 60 } },
     { iconImage = "image/侧栏_技能.png",                  label = "技能",   color = { 80, 200, 220 } },
+    { iconImage = "image/侧栏_仓库_20260507142528.png",   label = "仓库",   color = { 180, 160, 100 } },
 }
 
 -- ============================================================================
@@ -59,10 +60,10 @@ local function IsSidebarUnlocked(index)
         local am = GameManager.GetAscensionManager()
         return am and am.GetPotentialPrestige() > 0
     end
-    -- 5: 经验 → 已飞升过（当前声望>0）
+    -- 5: 经验 → 已飞升过（飞升次数≥1）
     if index == 5 then
         local am = GameManager.GetAscensionManager()
-        return am and am.GetPrestigeLevel() > 0
+        return am and am.GetAscensionCount() >= 1
     end
     -- 6: 周期 → 拥有「周期切换器」升级
     if index == 6 then
@@ -76,6 +77,9 @@ local function IsSidebarUnlocked(index)
     end
     -- 8: 技能 → 始终显示
     if index == 8 then return true end
+    -- 9: 仓库 → 始终显示
+    if index == 9 then return true end
+
     return true
 end
 

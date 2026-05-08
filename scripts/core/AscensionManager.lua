@@ -72,15 +72,9 @@ end
 -- 声望查询
 -- ============================================================================
 
---- 获取当前声望等级（自动修正被污染的数据）
+--- 获取当前声望等级
 ---@return number
 function AM.GetPrestigeLevel()
-    -- 根据历史营业额重算真实声望，防止 debug 注入导致虚高
-    local realPrestige = AD.CalcPrestigeLevel(totalBakedAllTime_ + bakedThisAscension_)
-    if prestigeLevel_ > realPrestige then
-        print("[Ascension] 修正声望: " .. prestigeLevel_ .. " -> " .. realPrestige)
-        prestigeLevel_ = realPrestige
-    end
     return prestigeLevel_
 end
 
@@ -433,8 +427,17 @@ function AM.LoadSaveData(data)
             boughtUpgrades_[id] = true
         end
     end
+
+    -- 一致性校验（仅日志警告，不强制降级，避免浮点精度导致误修正）
+    local realPrestige = AD.CalcPrestigeLevel(totalBakedAllTime_ + bakedThisAscension_)
+    if prestigeLevel_ > realPrestige + 1 then
+        print("[AscensionManager] 警告: 声望异常 saved=" .. prestigeLevel_
+              .. " calc=" .. realPrestige .. " totalBaked=" .. totalBakedAllTime_)
+    end
+
     print("[AscensionManager] 存档恢复 | 声望:" .. prestigeLevel_ ..
-          " 芯片:" .. heavenlyChips_ .. " 飞升:" .. ascensionCount_)
+          " 芯片:" .. heavenlyChips_ .. " 飞升:" .. ascensionCount_ ..
+          " 总烘焙:" .. totalBakedAllTime_)
 end
 
 return AM

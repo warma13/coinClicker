@@ -21,6 +21,11 @@ local manager_  = nil   -- GameManager
 local rowCache_ = {}      -- rowCache_[skillId] = { row, nameLabel, lastFP, lastState }
 local initialized_ = false
 
+-- 前向声明（内部函数）
+local BuildPanel
+local BuildSkillRow
+local FormatParams
+
 -- ============================================================================
 -- 初始化
 -- ============================================================================
@@ -124,7 +129,8 @@ end
 -- 内部：构建面板
 -- ============================================================================
 
-function BuildPanel()
+---@diagnostic disable-next-line: redefined-local
+BuildPanel = function()
     listContainer_ = UI.Panel {
         width = "100%",
         gap = 6,
@@ -179,7 +185,8 @@ end
 -- 内部：构建单行技能
 -- ============================================================================
 
-function BuildSkillRow(status)
+---@diagnostic disable-next-line: redefined-local
+BuildSkillRow = function(status)
     local def = status.def
     local info = status.info
     local bgColor, borderColor
@@ -209,11 +216,10 @@ function BuildSkillRow(status)
     if not status.locked and info.params then
         descText = FormatParams(def, info.params)
     end
-    -- 已解锁技能的体力消耗（单独一行）
-    local staminaCostText = nil
+    -- 已解锁技能的激活提示
+    local activateHintText = nil
     if not status.locked then
-        local staCost = SkillDefs.GetStaminaCost(def, info.level)
-        staminaCostText = "消耗体力 " .. staCost
+        activateHintText = "点击底栏图标看广告获取时间"
     end
 
     -- 状态按钮
@@ -298,9 +304,9 @@ function BuildSkillRow(status)
                 nameLabel,
                 UI.Label { text = descText, fontSize = 10,
                     fontColor = { 150, 140, 170, 200 } },
-                staminaCostText and UI.Label {
-                    text = staminaCostText, fontSize = 10,
-                    fontColor = { 180, 220, 140, 200 },
+                activateHintText and UI.Label {
+                    text = activateHintText, fontSize = 10,
+                    fontColor = { 140, 180, 220, 200 },
                 } or nil,
             }},
             -- 右侧按钮
@@ -328,7 +334,7 @@ end
 -- 内部：增量更新行
 -- ============================================================================
 
-function UpdateSkillRow(status)
+local function UpdateSkillRow(status)
     local def = status.def
     local info = status.info
     local cache = rowCache_[def.id]
@@ -375,7 +381,8 @@ end
 -- 内部：格式化参数
 -- ============================================================================
 
-function FormatParams(def, params)
+---@diagnostic disable-next-line: redefined-local
+FormatParams = function(def, params)
     local id = def.id
     if id == "speedClick" then
         local mins = math.floor(params.duration / 60)

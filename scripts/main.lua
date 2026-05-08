@@ -12,9 +12,12 @@ local AppLayout      = require("ui.AppLayout")
 local Tooltip        = require("ui.Tooltip")
 local SkillBar       = require("ui.SkillBar")
 local LeaderboardPanel = require("ui.LeaderboardPanel")
+local CoinParticle   = require("ui.CoinParticle")
+local FloatingText   = require("ui.FloatingText")
 
 local root_           = nil   -- UI root 引用
 local skillBarTimer_   = 0
+local vg_             = nil   -- NanoVG 上下文（粒子 + 浮动文本共享）
 
 function Start()
     graphics.windowTitle = "Coin Clicker"
@@ -64,10 +67,16 @@ function Start()
     -- 构建 UI 树并初始化所有模块
     root_ = AppLayout.Build()
 
+    -- 初始化 NanoVG（金币粒子 + 浮动文本使用 NanoVG 直接绘制，避免 Yoga 布局开销）
+    vg_ = nvgCreate(0)
+    CoinParticle.InitNVG(vg_)
+    FloatingText.InitNVG(vg_)
+
     -- 订阅事件
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("MouseButtonDown", "HandleMouseButtonDown")
     SubscribeToEvent("TouchBegin", "HandleTouchBegin")
+    SubscribeToEvent("NanoVGRender", "HandleNanoVGRender")
 
     -- 初始化存档系统（云端加载 → 本地回退 → 新玩家）
     SlotSaveSystem.Init(function(ok, offlineTime)
@@ -121,4 +130,18 @@ end
 function HandleTouchBegin(eventType, eventData)
     -- 移动端触摸后 pointerLeave 不会触发，全局触摸时关闭 Tooltip
     Tooltip.Hide()
+end
+
+--- NanoVG 渲染（金币粒子 + 浮动文本）
+---@param eventType string
+---@param eventData table
+function HandleNanoVGRender(eventType, eventData)
+    if not vg_ then return end
+    local dpr = graphics:GetDPR()
+    local logW = graphics:GetWidth() / dpr
+    local logH = graphics:GetHeight() / dpr
+    nvgBeginFrame(vg_, logW, logH, dpr)
+    CoinParticle.Render(vg_)
+    FloatingText.Render(vg_)
+    nvgEndFrame(vg_)
 end

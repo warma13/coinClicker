@@ -38,6 +38,8 @@ local MiningPanel       = require("ui.MiningPanel")
 local FactoryPanel      = require("ui.FactoryPanel")
 local ShipmentPanel     = require("ui.ShipmentPanel")
 local ECommercePanel    = require("ui.ECommercePanel")
+local InventoryPanel    = require("ui.InventoryPanel")
+-- local AdPanel           = require("ui.AdPanel")  -- 福利入口已隐藏
 local SkillBar          = require("ui.SkillBar")
 local LeaderboardPanel  = require("ui.LeaderboardPanel")
 local SettingsPanel     = require("ui.SettingsPanel")
@@ -185,6 +187,7 @@ function AppLayout.Build()
         SeasonPanel,          -- 6: 季节
         DragonPanel,          -- 7: 龙
         SkillPanel,           -- 8: 技能
+        InventoryPanel,       -- 9: 仓库
     }, FloatingText)
     Sidebar.Init(root)
 
@@ -263,6 +266,9 @@ function AppLayout.Build()
     SkillPanel.Init(drawerContent, GameManager)
     GameManager.SetSkillPanel(SkillPanel)
 
+    InventoryPanel.Init(drawerContent, GameManager)
+    GameManager.SetInventoryPanel(InventoryPanel)
+
     GardenPanel.Init(root, GameManager)
     GameManager.SetGardenPanel(GardenPanel)
 
@@ -299,7 +305,7 @@ function AppLayout.Build()
     local dpr = graphics:GetDPR()
     local screenW = graphics:GetWidth() / dpr
     SlotSaveSystem.OnSaved(function()
-        FloatingText.Show("已保存", screenW / 2, 36, { 120, 220, 140, 255 })
+        FloatingText.Show("已保存", screenW / 2, 68, { 120, 220, 140, 255 }, nil, 4)
     end)
 
     -- 注入 UI 引用到游戏管理器
@@ -322,6 +328,7 @@ function AppLayout.Build()
         reindeerDisplay    = ReindeerDisplay,
         dragonPanel        = DragonPanel,
         achievementPanel   = AchievementPanel,
+        inventoryPanel     = InventoryPanel,
     })
 
     Sidebar.UpdateHighlights()

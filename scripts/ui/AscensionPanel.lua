@@ -30,10 +30,17 @@ local ascendBtn_ = nil
 local ascendBtnLabel_ = nil
 local ascendBtnIcon_ = nil
 
+-- 确认弹窗
+local confirmOverlay_ = nil
+
 -- 外部注入
 local ascensionManager_ = nil
 local onAscend_ = nil         -- function()
 local onOpenShop_ = nil       -- function()
+
+-- 前向声明
+local ShowConfirm
+local CloseConfirm
 
 -- ============================================================================
 -- 内部：构建面板
@@ -124,11 +131,114 @@ local function BuildPanel()
         marginTop = 8,
         onPointerDown = function()
             if onAscend_ then
-                onAscend_()
+                ShowConfirm()
             end
         end,
         children = { ascendBtnLabel_, ascendBtnIcon_ },
     }
+
+    -- 确认弹窗
+    confirmOverlay_ = UI.Panel {
+        id = "ascendConfirmOverlay",
+        position = "absolute",
+        top = 0, left = 0,
+        width = "100%", height = "100%",
+        justifyContent = "center", alignItems = "center",
+        zIndex = 600,
+        backgroundColor = { 0, 0, 0, 160 },
+        pointerEvents = "auto",
+        onPointerDown = function()
+            CloseConfirm()
+        end,
+        children = {
+            UI.Panel {
+                width = 280,
+                flexDirection = "column",
+                alignItems = "center",
+                padding = 24,
+                gap = 14,
+                borderRadius = 16,
+                backgroundColor = { 35, 28, 55, 250 },
+                borderWidth = 2,
+                borderColor = { 200, 170, 255, 180 },
+                pointerEvents = "auto",
+                onPointerDown = function() end, -- 阻止冒泡
+                children = {
+                    UI.Label {
+                        text = "确认转型？",
+                        fontSize = 20,
+                        fontColor = { 255, 230, 150, 255 },
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        text = "转型将重置金币、产业、签单升级等进度，此操作不可撤销！",
+                        fontSize = 12,
+                        fontColor = { 220, 200, 180, 200 },
+                        textAlign = "center",
+                    },
+                    -- 按钮行
+                    UI.Panel {
+                        flexDirection = "row",
+                        gap = 16,
+                        marginTop = 4,
+                        children = {
+                            -- 取消
+                            UI.Panel {
+                                width = 100, height = 40,
+                                justifyContent = "center", alignItems = "center",
+                                borderRadius = 20,
+                                backgroundColor = { 60, 55, 80, 220 },
+                                borderWidth = 1,
+                                borderColor = { 120, 110, 150, 150 },
+                                pointerEvents = "auto",
+                                onPointerDown = function()
+                                    CloseConfirm()
+                                end,
+                                children = {
+                                    UI.Label {
+                                        text = "取消", fontSize = 14,
+                                        fontColor = { 180, 170, 200, 230 },
+                                    },
+                                },
+                            },
+                            -- 确认
+                            UI.Panel {
+                                width = 100, height = 40,
+                                justifyContent = "center", alignItems = "center",
+                                borderRadius = 20,
+                                backgroundColor = { 120, 80, 200, 255 },
+                                borderWidth = 1,
+                                borderColor = { 200, 170, 255, 200 },
+                                pointerEvents = "auto",
+                                onPointerDown = function()
+                                    CloseConfirm()
+                                    if onAscend_ then
+                                        onAscend_()
+                                    end
+                                end,
+                                children = {
+                                    UI.Label {
+                                        text = "确认转型", fontSize = 14,
+                                        fontColor = { 255, 255, 255, 255 },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+    confirmOverlay_:SetVisible(false)
+
+    ---@diagnostic disable-next-line: redefined-local
+    ShowConfirm = function()
+        if confirmOverlay_ then confirmOverlay_:SetVisible(true) end
+    end
+    ---@diagnostic disable-next-line: redefined-local
+    CloseConfirm = function()
+        if confirmOverlay_ then confirmOverlay_:SetVisible(false) end
+    end
 
     panel_ = UI.Panel {
         width = "100%", height = "100%",
@@ -137,6 +247,9 @@ local function BuildPanel()
         paddingTop = 12, paddingLeft = 8, paddingRight = 8,
         pointerEvents = "auto",
         children = {
+            -- 确认弹窗（absolute 覆盖层）
+            confirmOverlay_,
+
             -- 标题
             UI.Panel {
                 flexDirection = "row", alignItems = "center", gap = 6,

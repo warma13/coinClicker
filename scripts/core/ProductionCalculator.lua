@@ -19,6 +19,7 @@ local GrimoireManager    = require("core.GrimoireManager")
 local StockMarketManager = require("core.StockMarketManager")
 local AchievementManager = require("core.AchievementManager")
 local SkillManager       = require("core.SkillManager")
+local InventoryManager   = require("core.InventoryManager")
 
 local M = {}
 
@@ -140,6 +141,22 @@ function M.Recalculate(buildingUpgrades)
     -- 证券交易所贷款
     pool:Add(StockMarketManager.GetLoanCPSMultiplier())
 
+    -- 收藏品被动加成
+    local colBonus = InventoryManager.GetCollectibleBonuses()
+    if colBonus.cps_percent > 0 then
+        pool:Add(colBonus.cps_percent)
+    end
+    if colBonus.global_percent > 0 then
+        pool:Add(colBonus.global_percent)
+    end
+    -- 收藏品幸运加成
+    if colBonus.lucky_freq > 0 then
+        S.luckyFreqMul = S.luckyFreqMul * (1 + colBonus.lucky_freq)
+    end
+    if colBonus.lucky_dur > 0 then
+        S.luckyDurMul = S.luckyDurMul * (1 + colBonus.lucky_dur)
+    end
+
     -- ---- 乘算层（独立机制，保持乘法） ----
     pool:Mul(DragonManager.GetProductionMul())              -- 产量 ×2
 
@@ -175,6 +192,11 @@ function M.Recalculate(buildingUpgrades)
     local clickBonus = AscensionManager.GetClickBonus() + SeasonManager.GetClickBonus() + DragonManager.GetClickBonus()
     S.coinsPerClick = S.clickBase * cursorMul + S.cpsPercent * S.coinsPerSecond + S.fingerBonus
     S.coinsPerClick = S.coinsPerClick * (1 + clickBonus)
+
+    -- 收藏品 CPC 加成
+    if colBonus.cpc_percent > 0 then
+        S.coinsPerClick = S.coinsPerClick * (1 + colBonus.cpc_percent)
+    end
 
     -- 万神殿 CPC 乘数
     if PantheonManager.IsUnlocked() then

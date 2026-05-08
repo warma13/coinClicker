@@ -45,17 +45,6 @@ function M.Setup(GM, ctx)
             GrimoireManager.OnClick()
         end
 
-        -- 体力恢复（概率触发，随机 1~10，综合约 500 次点击恢复一次技能）
-        if S.stamina < S.staminaMax then
-            if math.random() < S.staminaClickChance then
-                local amount = math.random(1, 10)
-                S.stamina = math.min(S.staminaMax, S.stamina + amount)
-                if ctx.ui.floatingText then
-                    ctx.ui.floatingText.Show("+" .. amount .. "体力", x, y - 30, { 120, 220, 80, 255 })
-                end
-            end
-        end
-
         -- 点击音效 + 金币放缩动画
         AudioManager.PlaySFX("click")
         if ctx.ui.coinArea then

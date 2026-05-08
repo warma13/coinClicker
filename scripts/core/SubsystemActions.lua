@@ -21,6 +21,8 @@ local ShipmentManager    = require("core.ShipmentManager")
 local ECommerceManager   = require("core.ECommerceManager")
 local ECommerceConfig    = require("config.ECommerceConfig")
 local SkillManager       = require("core.SkillManager")
+local InventoryManager   = require("core.InventoryManager")
+local AdManager          = require("core.AdManager")
 local AudioManager       = require("core.AudioManager")
 local SlotSaveSystem     = require("core.SlotSaveSystem")
 local GameState          = require("core.GameState")
@@ -532,6 +534,62 @@ function M.Setup(GM, ctx)
             end
         end
     end
+
+    -- ========================================================================
+    -- 仓库系统
+    -- ========================================================================
+
+    ---@return table InventoryManager
+    function GM.GetInventoryManager()
+        return InventoryManager
+    end
+
+    ---@param panel table InventoryPanel 模块
+    function GM.SetInventoryPanel(panel)
+        ctx.ui.inventoryPanel = panel
+    end
+
+    ---@param slotIndex number
+    function GM.OnUseItem(slotIndex)
+        local ok, msg = InventoryManager.UseItem(slotIndex)
+        if ok then
+            GM.RecalcProduction()
+            GM.RefreshAllUI()
+            SlotSaveSystem.MarkDirty()
+            AudioManager.PlayBtnClick()
+            if ctx.ui.inventoryPanel and ctx.ui.inventoryPanel.IsVisible() then
+                ctx.ui.inventoryPanel.Refresh()
+            end
+            -- 浮动文字由 SetOnItemUsed 回调统一处理，此处不再重复显示
+        end
+    end
+
+    ---@param itemId string
+    ---@param count number
+    function GM.OnAddItem(itemId, count)
+        local ok = InventoryManager.AddItem(itemId, count or 1)
+        if ok then
+            SlotSaveSystem.MarkDirty()
+            if ctx.ui.inventoryPanel and ctx.ui.inventoryPanel.IsVisible() then
+                ctx.ui.inventoryPanel.Refresh()
+            end
+        end
+        return ok
+    end
+
+    ---@param slotIndex number
+    ---@param count number|nil
+    function GM.OnDiscardItem(slotIndex, count)
+        local ok = InventoryManager.RemoveItem(slotIndex, count or 1)
+        if ok then
+            SlotSaveSystem.MarkDirty()
+            AudioManager.PlayBtnClick()
+            if ctx.ui.inventoryPanel and ctx.ui.inventoryPanel.IsVisible() then
+                ctx.ui.inventoryPanel.Refresh()
+            end
+        end
+        return ok
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -594,6 +652,7 @@ function M.InitCallbacks(GM, ctx)
         FactoryManager.ResetForAscension()
         ShipmentManager.ResetForAscension()
         ECommerceManager.ResetForAscension()
+        InventoryManager.ResetForAscension()
         -- 重新生成建筑升级数据（建筑已重置）
         GM.buildingUpgrades = BuildingUpgrades.Generate(Buildings.buildings)
         -- 同步更新 SaveBridge 的引用（飞升后 buildingUpgrades 已重新生成）
@@ -957,8 +1016,34 @@ function M.InitCallbacks(GM, ctx)
         end
     end)
 
+    -- 初始化仓库系统
+    InventoryManager.Init()
+    InventoryManager.SetOnItemUsed(function(slotIndex, itemDef, effectDesc)
+        if ctx.ui.floatingText and itemDef then
+            local dpr = graphics:GetDPR()
+            local cx = graphics:GetWidth() / dpr * 0.5
+            local cy = graphics:GetHeight() / dpr * 0.15
+            local msg = "使用了 " .. itemDef.name
+            if effectDesc and effectDesc ~= "" then
+                msg = msg .. "，" .. effectDesc
+            end
+            ctx.ui.floatingText.Show(msg, cx, cy, { 255, 220, 100, 255 })
+        end
+    end)
+    InventoryManager.SetOnItemAdded(function(itemDef, count)
+        if ctx.ui.floatingText then
+            local dpr = graphics:GetDPR()
+            local cx = graphics:GetWidth() / dpr * 0.5
+            local cy = graphics:GetHeight() / dpr * 0.15
+            ctx.ui.floatingText.Show("获得 " .. itemDef.name .. " x" .. count, cx, cy, { 255, 220, 100, 255 })
+        end
+    end)
+
     -- 首次幸运金币出现快一些
     GameState.luckyTimer = 10 + math.random() * 20
+
+    -- 初始化广告福利系统
+    AdManager.Init()
 
     -- 初始化技能系统
     SkillManager.Init(function(x, y, skipRateLimit)

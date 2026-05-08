@@ -100,7 +100,7 @@ local State = {
     -- 体力系统
     stamina = 0,             -- 当前体力
     staminaMax = 300,        -- 体力上限
-    staminaClickChance = 0.0364, -- 每次点击触发概率（随机1~10，均值5.5）
+    staminaRegenRate = 300 / 86400, -- 每秒恢复体力（24小时回满300）
 
     -- 设置（音量等）
     settings = {

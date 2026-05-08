@@ -2,6 +2,7 @@
 -- ui/FloatingText.lua
 -- 浮动文本工具：在指定位置显示文本，向上浮动渐渐消失
 -- 最多同时显示 3 条，超过会把旧的快速顶掉
+-- 使用 NanoVG 直接绘制，避免 UI 组件的 Yoga 布局开销
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
@@ -13,114 +14,56 @@ local MAX_VISIBLE = 3
 local FLOAT_SPEED = 50         -- 向上浮动速度（像素/秒）
 local NORMAL_LIFE = 2.5        -- 正常存活时间（秒）
 local FAST_FADE_LIFE = 0.2     -- 被顶掉时快速淡出时间（秒）
-local LABEL_WIDTH = 320        -- Label 固定宽度（用于居中偏移）
 local BASE_FONT_SIZE = 20      -- 基础字号
-
--- 活跃文本队列
-local activeTexts = {}
-
--- 容器引用
-local container_ = nil
-
--- 预分配的条目池（MAX_VISIBLE + 1 用于过渡）
--- 每个条目是一个 Panel（含可选 icon + Label）
-local POOL_SIZE = MAX_VISIBLE + 1
-local entryPool = {}
-local poolInited = false
 local ICON_SIZE = 20           -- 图标尺寸
 
---- 创建浮动文本容器（absolute 定位的透明容器）
+-- NanoVG 资源（由 main.lua 通过 InitNVG 注入）
+local vg_ = nil
+local fontId_ = -1
+local iconCache_ = {}          -- path -> nvgImageHandle
+
+-- 活跃文本队列（纯数据）
+local activeTexts = {}
+
+--- 创建占位容器（保持 AppLayout 兼容，不包含任何子元素）
 ---@return table container UI 定义
 function FloatingText.Create()
     return UI.Panel {
         id = "floatingTextContainer",
         position = "absolute",
-        left = 0,
-        top = 0,
-        width = "100%",
-        height = "100%",
-        zIndex = 200,
+        left = 0, top = 0,
+        width = 0, height = 0,
         pointerEvents = "none",
     }
 end
 
---- 初始化：缓存容器引用，创建 Label 池
----@param root table UI 根节点
+--- 初始化（重置状态）
+---@param root table UI 根节点（保留参数兼容）
 function FloatingText.Init(root)
-    container_ = root:FindById("floatingTextContainer")
-    if not container_ then
-        print("[FloatingText] WARNING: container not found!")
-        return
-    end
-
-    -- 创建条目池（Panel: icon + Label）
-    if not poolInited then
-        for i = 1, POOL_SIZE do
-            local row = UI.Panel {
-                id = "ft_row_" .. i,
-                position = "absolute",
-                left = 0, top = 0,
-                width = LABEL_WIDTH,
-                flexDirection = "row",
-                alignItems = "center",
-                justifyContent = "center",
-                gap = 4,
-                pointerEvents = "none",
-            }
-            container_:AddChild(row)
-            local rowRef = container_:FindById("ft_row_" .. i)
-            if rowRef then
-                -- icon 面板（默认隐藏）
-                local iconPanel = UI.Panel {
-                    id = "ft_icon_" .. i,
-                    width = ICON_SIZE, height = ICON_SIZE,
-                    backgroundFit = "contain",
-                    pointerEvents = "none",
-                }
-                rowRef:AddChild(iconPanel)
-                local iconRef = rowRef:FindById("ft_icon_" .. i)
-                if iconRef then iconRef:SetVisible(false) end
-
-                -- 文本 Label
-                local label = UI.Label {
-                    id = "ft_label_" .. i,
-                    text = "",
-                    fontSize = BASE_FONT_SIZE,
-                    fontWeight = "bold",
-                    fontColor = { 255, 255, 255, 255 },
-                    textAlign = "center",
-                    pointerEvents = "none",
-                }
-                rowRef:AddChild(label)
-                local labelRef = rowRef:FindById("ft_label_" .. i)
-
-                rowRef:SetVisible(false)
-                entryPool[i] = { row = rowRef, label = labelRef, icon = iconRef, inUse = false }
-            end
-        end
-        poolInited = true
-    end
-
     activeTexts = {}
 end
 
---- 从池中获取一个空闲条目
----@return table|nil poolEntry
-local function AcquireEntry()
-    for i = 1, POOL_SIZE do
-        if entryPool[i] and not entryPool[i].inUse then
-            entryPool[i].inUse = true
-            return entryPool[i]
+--- 设置 NanoVG 资源（由 main.lua 创建 vg 上下文后调用）
+---@param vg userdata NanoVG 上下文
+function FloatingText.InitNVG(vg)
+    vg_ = vg
+    if vg_ and fontId_ < 0 then
+        fontId_ = nvgCreateFont(vg_, "sans", "Fonts/MiSans-Regular.ttf")
+        if fontId_ < 0 then
+            print("[FloatingText] WARNING: failed to load font")
         end
     end
-    return nil
 end
 
---- 归还条目到池
----@param entry table poolEntry
-local function ReleaseEntry(entry)
-    entry.inUse = false
-    entry.row:SetVisible(false)
+--- 获取/缓存图标的 NanoVG 图像句柄
+---@param path string 图标路径
+---@return number imageHandle
+local function GetIconImage(path)
+    if not vg_ then return -1 end
+    if not iconCache_[path] then
+        iconCache_[path] = nvgCreateImage(vg_, path, 0)
+    end
+    return iconCache_[path]
 end
 
 --- 显示一条浮动文本（可带图标）
@@ -129,8 +72,9 @@ end
 ---@param y number 逻辑坐标 Y（点击位置）
 ---@param color table|nil 颜色 {r,g,b,a}，默认白色
 ---@param icon string|nil 图标图片路径（可选）
-function FloatingText.Show(text, x, y, color, icon)
-    if not container_ then return end
+---@param duration number|nil 存活时间（秒），默认 NORMAL_LIFE
+function FloatingText.Show(text, x, y, color, icon, duration)
+    if not vg_ then return end
 
     local c = color or { 255, 255, 255, 255 }
 
@@ -142,55 +86,47 @@ function FloatingText.Show(text, x, y, color, icon)
         oldest.fastFade = true
     end
 
-    -- 获取一个条目
-    local entry = AcquireEntry()
-    if not entry then
-        if #activeTexts > 0 then
-            local removed = table.remove(activeTexts, 1)
-            ReleaseEntry(removed.poolEntry)
-            entry = AcquireEntry()
-        end
-        if not entry then return end
+    -- 溢出保护：丢弃最旧的条目
+    if #activeTexts >= MAX_VISIBLE + 1 then
+        table.remove(activeTexts, 1)
     end
 
-    -- 在点击位置上方一点出现，水平居中于点击点
-    local spawnLeft = x - LABEL_WIDTH * 0.5
-    local spawnTop = y - 30
+    -- 缓存图标图像（在渲染循环外创建，安全）
+    local iconImg = -1
+    if icon then
+        iconImg = GetIconImage(icon)
+    end
 
-    -- 设置图标
-    if entry.icon then
-        if icon then
-            entry.icon:SetStyle({ backgroundImage = icon })
-            entry.icon:SetVisible(true)
-        else
-            entry.icon:SetVisible(false)
+    -- 计算生成位置：避开已有文本，向下堆叠
+    local spawnY = y - 30
+    local LINE_HEIGHT = BASE_FONT_SIZE + 8
+    for _, existing in ipairs(activeTexts) do
+        if not existing.fastFade then
+            local existingY = existing.spawnY - existing.elapsed * FLOAT_SPEED
+            if math.abs(existingY - spawnY) < LINE_HEIGHT then
+                spawnY = existingY + LINE_HEIGHT
+            end
         end
     end
 
-    -- 设置文本
-    entry.label:SetText(text)
-    entry.label:SetFontColor({ c[1], c[2], c[3], 255 })
-
-    -- 设置行容器位置
-    entry.row:SetStyle({ left = math.floor(spawnLeft), top = math.floor(spawnTop) })
-    entry.row:SetVisible(true)
-
+    local lifeTime = duration or NORMAL_LIFE
     activeTexts[#activeTexts + 1] = {
-        poolEntry = entry,
-        life = NORMAL_LIFE,
-        maxLife = NORMAL_LIFE,
-        spawnLeft = spawnLeft,
-        spawnTop = spawnTop,
+        text = text,
+        x = x,
+        spawnY = spawnY,
         elapsed = 0,
+        life = lifeTime,
+        maxLife = lifeTime,
         baseColor = { c[1], c[2], c[3] },
         fastFade = false,
+        iconImg = iconImg,
     }
 end
 
---- 每帧更新（由 GameManager 调用）
+--- 每帧生命周期更新（纯数据运算，无 UI 调用）
 ---@param dt number 帧时间
 function FloatingText.Update(dt)
-    if not container_ then return end
+    if #activeTexts == 0 then return end
 
     for i = #activeTexts, 1, -1 do
         local entry = activeTexts[i]
@@ -198,24 +134,54 @@ function FloatingText.Update(dt)
         entry.life = entry.life - dt
 
         if entry.life <= 0 then
-            ReleaseEntry(entry.poolEntry)
             table.remove(activeTexts, i)
-        else
-            -- 向上浮动
-            local speed = entry.fastFade and (FLOAT_SPEED * 3) or FLOAT_SPEED
-            local currentTop = entry.spawnTop - entry.elapsed * speed
-
-            -- 淡出
-            local alpha = math.floor(255 * math.min(1, entry.life / (entry.maxLife * 0.5)))
-            alpha = math.max(0, math.min(255, alpha))
-
-            local bc = entry.baseColor
-            entry.poolEntry.label:SetFontColor({ bc[1], bc[2], bc[3], alpha })
-            if entry.poolEntry.icon and entry.poolEntry.icon:IsVisible() then
-                entry.poolEntry.icon:SetStyle({ opacity = alpha / 255 })
-            end
-            entry.poolEntry.row:SetStyle({ top = math.floor(currentTop) })
         end
+    end
+end
+
+--- NanoVG 渲染（在 nvgBeginFrame/nvgEndFrame 之间由 main.lua 调用）
+---@param vg userdata NanoVG 上下文
+function FloatingText.Render(vg)
+    if #activeTexts == 0 then return end
+    if fontId_ < 0 then return end
+
+    nvgFontFace(vg, "sans")
+    nvgFontSize(vg, BASE_FONT_SIZE)
+    nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE)
+
+    for _, entry in ipairs(activeTexts) do
+        local speed = entry.fastFade and (FLOAT_SPEED * 3) or FLOAT_SPEED
+        local currentY = entry.spawnY - entry.elapsed * speed
+
+        -- 淡出计算
+        local alpha = math.floor(255 * math.min(1, entry.life / (entry.maxLife * 0.5)))
+        alpha = math.max(0, math.min(255, alpha))
+
+        local bc = entry.baseColor
+        local drawX = entry.x
+
+        -- 绘制图标（如果有）
+        if entry.iconImg >= 0 then
+            local iconAlpha = alpha / 255
+            local iconX = drawX - ICON_SIZE * 0.5 - 4
+            local iconY = currentY - ICON_SIZE * 0.5
+            local paint = nvgImagePattern(vg, iconX, iconY, ICON_SIZE, ICON_SIZE, 0, entry.iconImg, iconAlpha)
+            nvgBeginPath(vg)
+            nvgRect(vg, iconX, iconY, ICON_SIZE, ICON_SIZE)
+            nvgFillPaint(vg, paint)
+            nvgFill(vg)
+            drawX = drawX + ICON_SIZE * 0.5 + 4
+        end
+
+        -- 文本阴影（增强可读性）
+        nvgFontBlur(vg, 2)
+        nvgFillColor(vg, nvgRGBA(0, 0, 0, alpha))
+        nvgText(vg, drawX, currentY, entry.text)
+
+        -- 正文
+        nvgFontBlur(vg, 0)
+        nvgFillColor(vg, nvgRGBA(bc[1], bc[2], bc[3], alpha))
+        nvgText(vg, drawX, currentY, entry.text)
     end
 end
 

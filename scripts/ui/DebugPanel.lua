@@ -15,6 +15,8 @@ local FactoryManager = require("core.FactoryManager")
 local ShipmentManager = require("core.ShipmentManager")
 local ECommerceManager = require("core.ECommerceManager")
 local SugarLumpManager = require("core.SugarLumpManager")
+local InventoryManager = require("core.InventoryManager")
+local ItemDefs = require("config.ItemDefs")
 local SD = require("config.SugarLumpDefs")
 
 -- 面板引用（延迟设置，用于重置后刷新）
@@ -355,6 +357,44 @@ function DP.OpenModal()
         },
     }
 
+    -- ===== 仓库调试 =====
+    local usedSlots = InventoryManager.GetUsedSlotCount()
+    local totalSlots = InventoryManager.GetSlotCount()
+    -- 构建道具添加按钮（每个道具一个按钮）
+    local addItemBtns = {}
+    for _, item in ipairs(ItemDefs.ITEMS) do
+        addItemBtns[#addItemBtns + 1] = MakeBtn("+" .. item.abbr, { 255, 220, 80 }, function()
+            local ok, reason = InventoryManager.AddItem(item.id, 1)
+            if ok then
+                print("[Debug] 添加道具: " .. item.name)
+            else
+                print("[Debug] 添加失败: " .. (reason or "unknown"))
+            end
+        end)
+    end
+    local inventorySection = UI.Panel {
+        width = "100%", flexDirection = "column", gap = 6,
+        children = {
+            SectionTitle("仓库"),
+            InfoLabel("已用: " .. usedSlots .. "/" .. totalSlots),
+            BtnRow(addItemBtns),
+            BtnRow({
+                MakeBtn("填满仓库", { 100, 200, 255 }, function()
+                    for _, item in ipairs(ItemDefs.ITEMS) do
+                        InventoryManager.AddItem(item.id, item.maxStack or 1)
+                    end
+                    print("[Debug] 仓库已填满")
+                end),
+                MakeBtn("清空仓库", { 220, 80, 80 }, function()
+                    for i = 1, InventoryManager.GetSlotCount() do
+                        InventoryManager.RemoveItem(i, 9999)
+                    end
+                    print("[Debug] 仓库已清空")
+                end),
+            }),
+        },
+    }
+
     -- ===== 构建弹窗 =====
     overlay_ = UI.Panel {
         position = "absolute",
@@ -492,6 +532,7 @@ function DP.OpenModal()
                                     shipmentSection,
                                     ecomSection,
                                     sugarSection,
+                                    inventorySection,
 
                                     Divider(),
 

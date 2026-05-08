@@ -1,7 +1,8 @@
 -- ============================================================================
 -- core/SlotSaveSystem.lua
 -- 单槽位云端存档系统：云端优先 · 本地缓存 · 自动分片 · 自动保存
--- 对外唯一入口，业务层通过 Save/SaveNow/MarkDirty 触发存档
+-- 防护：generation 防幽灵回调 · confirmedSeq 防回档 · 超时保护
+--       连续失败熔断 · NaN/Inf 消毒 · 本地文件校验头
 -- ============================================================================
 
 ---@diagnostic disable: undefined-global
@@ -16,12 +17,15 @@ local SSS = {}
 -- ---------------------------------------------------------------------------
 
 local SLOT_ID        = 1       -- 单槽位，固定为 1
-local SAVE_INTERVAL  = 10      -- 自动保存间隔（秒）
-local DIRTY_DELAY    = 5       -- MarkDirty 延迟合并（秒）
+local SAVE_INTERVAL  = 30      -- 自动保存间隔（秒）
+local DIRTY_DELAY    = 2       -- MarkDirty 延迟合并（秒）
 local CHUNK_SIZE     = 9000    -- 单分片最大字节数（预留 key 开销）
 local MAX_RETRY      = 3       -- 云端保存最大重试次数
 local RETRY_BASE     = 3       -- 重试基础间隔（秒），指数退避 3^n
 local LOCAL_FILE     = "save_slot1.json"
+local SAVE_TIMEOUT   = 15      -- 云端保存超时（秒）
+local FAIL_WARN_AT   = 3       -- 连续失败 N 次显示警告
+local FAIL_PAUSE_AT  = 6       -- 连续失败 N 次暂停自动保存
 
 -- ---------------------------------------------------------------------------
 -- 内部状态
@@ -29,17 +33,24 @@ local LOCAL_FILE     = "save_slot1.json"
 
 local initialized_    = false
 local saveConfirmed_  = false   -- 加载/新建成功后为 true，才允许自动保存
-local saveSeq_        = 0       -- 保存序列号，每次成功保存递增
+local saveSeq_        = 0       -- 保存序列号，每次发出保存请求递增
+local confirmedSeq_   = 0       -- 云端确认成功的序列号
+local saveGeneration_ = 0       -- 保存代次，每次发出新请求递增，防幽灵回调
+local loadGeneration_ = 0       -- 加载代次，防旧加载回调干扰
 local playTime_       = 0       -- 累计游戏时长
 local autoSaveTimer_  = 0       -- 自动保存倒计时
 local dirtyTimer_     = -1      -- MarkDirty 延迟倒计时（< 0 表示无脏标记）
 local retryTimer_     = -1      -- 云端重试倒计时
 local retryCount_     = 0
-local pendingSave_    = nil     -- 待重试的存档数据
+local pendingSave_    = false   -- 是否有待发送的保存（saving_ 期间有新请求）
 local headCache_      = nil     -- 最近一次写入的 head（用于清理旧分片）
 local saving_         = false   -- 防止并发保存
 local loading_        = false
 local onSavedCallback_ = nil   -- 保存成功外部回调
+local saveTimeoutTimer_ = -1   -- 超时计时器
+local consecutiveFails_ = 0    -- 连续失败次数
+local savePaused_     = false   -- 熔断：是否暂停自动保存
+local warningShown_   = false   -- 是否已显示存档警告
 
 -- ============================================================================
 -- DJB2 校验码
@@ -54,6 +65,52 @@ local function CalcChecksum(str)
         hash = ((hash << 5) + hash + string.byte(str, i)) & 0xFFFFFFFF
     end
     return hash
+end
+
+-- ============================================================================
+-- 数据消毒：NaN / Inf / 非法类型 / 循环引用
+-- ============================================================================
+
+--- 递归清洗存档数据，将 NaN/Inf 替换为 0，移除 function/userdata
+---@param t table
+---@param visited table|nil  循环引用检测
+---@return table
+local function SanitizeTable(t, visited)
+    if type(t) ~= "table" then return t end
+    visited = visited or {}
+    if visited[t] then
+        print("[SaveSystem] 警告: 检测到循环引用，已截断")
+        return {}
+    end
+    visited[t] = true
+
+    local cleaned = {}
+    for k, v in pairs(t) do
+        local kType = type(k)
+        -- key 只保留 string 和 number
+        if kType == "string" or kType == "number" then
+            local vType = type(v)
+            if vType == "number" then
+                -- NaN: x ~= x；Inf: math.abs(x) == math.huge
+                if v ~= v or math.abs(v) == math.huge then
+                    print("[SaveSystem] 消毒: key=" .. tostring(k) .. " value=" .. tostring(v) .. " → 0")
+                    cleaned[k] = 0
+                else
+                    cleaned[k] = v
+                end
+            elseif vType == "table" then
+                cleaned[k] = SanitizeTable(v, visited)
+            elseif vType == "string" or vType == "boolean" then
+                cleaned[k] = v
+            else
+                -- function, userdata, thread 等：跳过
+                print("[SaveSystem] 消毒: 移除非法类型 key=" .. tostring(k) .. " type=" .. vType)
+            end
+        end
+    end
+
+    visited[t] = nil
+    return cleaned
 end
 
 -- ============================================================================
@@ -103,10 +160,10 @@ local function ChunkKey(groupName, chunkIdx)
 end
 
 -- ============================================================================
--- 本地文件缓存
+-- 本地文件缓存（带校验头：长度:DJB2\nJSON）
 -- ============================================================================
 
---- 同步写入本地文件
+--- 同步写入本地文件（带校验头）
 ---@param saveData table
 ---@return boolean ok
 local function SaveLocal(saveData)
@@ -115,9 +172,11 @@ local function SaveLocal(saveData)
         print("[SaveSystem] 本地编码失败: " .. tostring(json))
         return false
     end
+    local checksum = CalcChecksum(json)
+    local header = #json .. ":" .. checksum .. "\n"
     local file = File(LOCAL_FILE, FILE_WRITE)
     if file:IsOpen() then
-        file:WriteString(json)
+        file:WriteString(header .. json)
         file:Close()
         return true
     end
@@ -125,18 +184,88 @@ local function SaveLocal(saveData)
     return false
 end
 
---- 同步读取本地文件
+--- 同步读取本地文件（校验长度+DJB2）
 ---@return table|nil
 local function LoadLocal()
     if not fileSystem:FileExists(LOCAL_FILE) then return nil end
     local file = File(LOCAL_FILE, FILE_READ)
     if not file:IsOpen() then return nil end
-    local str = file:ReadString()
+    local raw = file:ReadString()
     file:Close()
-    local ok, data = pcall(cjson.decode, str)
-    if ok then return data end
+    if not raw or #raw == 0 then return nil end
+
+    -- 尝试解析校验头
+    local newlinePos = raw:find("\n", 1, true)
+    if newlinePos then
+        local header = raw:sub(1, newlinePos - 1)
+        local json = raw:sub(newlinePos + 1)
+        local colonPos = header:find(":", 1, true)
+        if colonPos then
+            local expectedLen = tonumber(header:sub(1, colonPos - 1))
+            local expectedCs  = tonumber(header:sub(colonPos + 1))
+            if expectedLen and expectedCs then
+                -- 校验长度
+                if #json ~= expectedLen then
+                    print("[SaveSystem] 本地文件被截断: 期望 " .. expectedLen .. " 实际 " .. #json)
+                    return nil
+                end
+                -- 校验 DJB2
+                local actualCs = CalcChecksum(json)
+                if actualCs ~= expectedCs then
+                    print("[SaveSystem] 本地文件校验失败: 期望 " .. expectedCs .. " 实际 " .. actualCs)
+                    return nil
+                end
+                -- 校验通过，解码
+                local decOk, data = pcall(cjson.decode, json)
+                if decOk then return data end
+                print("[SaveSystem] 本地文件解码失败（校验通过但 JSON 无效）")
+                return nil
+            end
+        end
+    end
+
+    -- 兼容旧格式（无校验头，裸 JSON）
+    local ok2, data = pcall(cjson.decode, raw)
+    if ok2 then
+        print("[SaveSystem] 本地缓存为旧格式（无校验头），已兼容读取")
+        return data
+    end
     print("[SaveSystem] 本地文件解码失败")
     return nil
+end
+
+-- ============================================================================
+-- 连续失败熔断 + 警告
+-- ============================================================================
+
+local function OnSaveFailed()
+    consecutiveFails_ = consecutiveFails_ + 1
+    print("[SaveSystem] 连续失败: " .. consecutiveFails_ .. " 次")
+
+    if consecutiveFails_ >= FAIL_PAUSE_AT and not savePaused_ then
+        savePaused_ = true
+        print("[SaveSystem] 熔断：连续失败 " .. consecutiveFails_ .. " 次，暂停自动保存")
+    end
+
+    if consecutiveFails_ >= FAIL_WARN_AT and not warningShown_ then
+        warningShown_ = true
+        print("[SaveSystem] 存档异常警告已触发")
+    end
+end
+
+local function OnSaveSucceeded()
+    if consecutiveFails_ > 0 then
+        print("[SaveSystem] 云端保存恢复正常（此前连续失败 " .. consecutiveFails_ .. " 次）")
+    end
+    consecutiveFails_ = 0
+    if savePaused_ then
+        savePaused_ = false
+        print("[SaveSystem] 熔断解除：自动保存已恢复")
+    end
+    if warningShown_ then
+        warningShown_ = false
+        print("[SaveSystem] 存档警告已消除")
+    end
 end
 
 -- ============================================================================
@@ -155,14 +284,19 @@ local function SaveToCloud(saveData, onComplete)
 
     local groups, version, timestamp = SaveBridge.SplitIntoGroups(saveData)
 
-    -- 构建 head 索引
+    -- 递增序列号和代次
     saveSeq_ = saveSeq_ + 1
+    saveGeneration_ = saveGeneration_ + 1
+    local myGen = saveGeneration_  -- 闭包捕获当前代次
+    local mySeq = saveSeq_
+
+    -- 构建 head 索引
     local headData = {
         format    = 1,
         version   = version,
         timestamp = timestamp,
         slotId    = SLOT_ID,
-        saveSeq   = saveSeq_,
+        saveSeq   = mySeq,
         keys      = {},
     }
 
@@ -173,14 +307,12 @@ local function SaveToCloud(saveData, onComplete)
             local chunks, checksums, totalLen = EncodeGroup(groupData)
 
             if #chunks == 1 then
-                -- 单片：直接存表（云端自动 JSON 编码）
                 headData.keys[groupName] = {
                     cs  = checksums[1],
                     len = totalLen,
                 }
                 batch:Set(GroupKey(groupName), groupData)
             else
-                -- 多片：存原始 JSON 字符串分片
                 headData.keys[groupName] = {
                     chunks = #chunks,
                     cs     = checksums,
@@ -197,18 +329,28 @@ local function SaveToCloud(saveData, onComplete)
     -- 写入 head
     batch:Set(HeadKey(), headData)
 
+    -- 启动超时计时器
+    saveTimeoutTimer_ = SAVE_TIMEOUT
+
     -- 提交
     batch:Save("自动存档", {
         ok = function()
-            -- 清理旧分片残留（分片数量减少时）
+            -- 幽灵回调检测：如果代次不匹配，丢弃
+            if myGen ~= saveGeneration_ then
+                print("[SaveSystem] 丢弃旧代次回调 (gen=" .. myGen .. " current=" .. saveGeneration_ .. ")")
+                return
+            end
+
+            saveTimeoutTimer_ = -1  -- 取消超时
+            confirmedSeq_ = mySeq   -- 更新确认序列号
+
+            -- 清理旧分片残留
             if headCache_ and headCache_.keys then
                 for gn, oldInfo in pairs(headCache_.keys) do
                     if oldInfo.chunks then
                         local newInfo = headData.keys[gn]
                         local newChunks = (newInfo and newInfo.chunks) or 0
-                        -- 如果之前是多片、现在单片或更少片，删除多余 key
                         if newChunks == 0 or (type(newChunks) ~= "number") then
-                            -- 变成了单片，删除所有旧分片
                             for ci = 0, oldInfo.chunks - 1 do
                                 clientCloud:BatchSet():Set(ChunkKey(gn, ci), ""):Save("清理")
                             end
@@ -222,11 +364,19 @@ local function SaveToCloud(saveData, onComplete)
             end
 
             headCache_ = headData
-            print("[SaveSystem] 云端保存成功 (seq=" .. saveSeq_ .. " " .. os.date("%H:%M:%S") .. ")")
+            OnSaveSucceeded()
+            print("[SaveSystem] 云端保存成功 (seq=" .. mySeq .. " gen=" .. myGen .. " " .. os.date("%H:%M:%S") .. ")")
             if onSavedCallback_ then onSavedCallback_() end
             if onComplete then onComplete(true) end
         end,
         error = function(code, reason)
+            -- 幽灵回调检测
+            if myGen ~= saveGeneration_ then
+                print("[SaveSystem] 丢弃旧代次错误回调 (gen=" .. myGen .. ")")
+                return
+            end
+            saveTimeoutTimer_ = -1
+            OnSaveFailed()
             print("[SaveSystem] 云端保存失败: " .. tostring(reason) .. " (code=" .. tostring(code) .. ")")
             if onComplete then onComplete(false) end
         end,
@@ -246,9 +396,14 @@ local function LoadFromCloud(onComplete)
         return
     end
 
+    loadGeneration_ = loadGeneration_ + 1
+    local myLoadGen = loadGeneration_
+
     -- 第一步：读取 head
     clientCloud:Get(HeadKey(), {
         ok = function(values, _)
+            if myLoadGen ~= loadGeneration_ then return end
+
             local head = values[HeadKey()]
             if not head then
                 print("[SaveSystem] 云端无存档 (head 为空)")
@@ -263,10 +418,11 @@ local function LoadFromCloud(onComplete)
 
             headCache_ = head
             saveSeq_ = head.saveSeq or 0
+            confirmedSeq_ = saveSeq_  -- 加载时同步确认序列号
 
             -- 第二步：批量读取所有分组 key
             local batchGet  = clientCloud:BatchGet()
-            local groupMeta = {} -- groupName → { single, chunks, cs }
+            local groupMeta = {}
 
             for groupName, info in pairs(head.keys) do
                 if info.chunks then
@@ -282,13 +438,13 @@ local function LoadFromCloud(onComplete)
 
             batchGet:Fetch({
                 ok = function(values2, _)
+                    if myLoadGen ~= loadGeneration_ then return end
+
                     local groups = {}
 
                     for groupName, meta in pairs(groupMeta) do
                         if meta.single then
-                            -- 单片：云端自动 JSON 解码为 table
                             local val = values2[GroupKey(groupName)]
-                            -- 校验 checksum
                             if val and meta.cs then
                                 local json = cjson.encode(val)
                                 local actual = CalcChecksum(json)
@@ -299,13 +455,11 @@ local function LoadFromCloud(onComplete)
                             end
                             groups[groupName] = val
                         else
-                            -- 多片：拼接 JSON 字符串后解码
                             local parts = {}
                             local valid = true
                             for ci = 0, meta.chunks - 1 do
                                 local chunk = values2[ChunkKey(groupName, ci)]
                                 if chunk then
-                                    -- 校验每片 checksum
                                     if meta.cs and meta.cs[ci + 1] then
                                         local actual = CalcChecksum(chunk)
                                         if actual ~= meta.cs[ci + 1] then
@@ -332,21 +486,19 @@ local function LoadFromCloud(onComplete)
                         end
                     end
 
-                    -- 合并为完整存档
                     local saveData = SaveBridge.MergeGroups(groups, head.version, head.timestamp)
-
-                    -- 版本迁移
                     saveData = SaveBridge.RunMigrations(saveData)
-
                     onComplete(saveData, nil)
                 end,
                 error = function(code, reason)
+                    if myLoadGen ~= loadGeneration_ then return end
                     print("[SaveSystem] 云端读取分组失败: " .. tostring(reason))
                     onComplete(nil, "fetch_error")
                 end,
             })
         end,
         error = function(code, reason)
+            if myLoadGen ~= loadGeneration_ then return end
             print("[SaveSystem] 云端读取 head 失败: " .. tostring(reason))
             onComplete(nil, "head_error")
         end,
@@ -358,7 +510,6 @@ end
 -- ============================================================================
 
 --- 初始化存档系统（启动时调用一次）
---- 自动从云端加载，若无存档则视为新玩家
 ---@param onComplete fun(ok: boolean, offlineTime: number)|nil
 function SSS.Init(onComplete)
     if initialized_ then
@@ -373,17 +524,14 @@ function SSS.Init(onComplete)
         loading_ = false
 
         if saveData then
-            -- 恢复运行时状态
             SaveBridge.Deserialize(saveData)
 
-            -- 计算离线时长
             local offlineTime = 0
             if saveData.timestamp then
                 offlineTime = os.time() - saveData.timestamp
                 if offlineTime < 0 then offlineTime = 0 end
             end
 
-            -- 缓存到本地
             SaveLocal(saveData)
 
             saveConfirmed_ = true
@@ -393,7 +541,6 @@ function SSS.Init(onComplete)
             print("[SaveSystem] 云端存档加载成功 | 离线: " .. offlineTime .. "秒")
             if onComplete then onComplete(true, offlineTime) end
         else
-            -- 云端失败或无存档 → 尝试本地缓存
             local localData = LoadLocal()
             if localData then
                 print("[SaveSystem] 使用本地缓存存档")
@@ -404,7 +551,6 @@ function SSS.Init(onComplete)
                 autoSaveTimer_ = SAVE_INTERVAL
                 if onComplete then onComplete(true, 0) end
             else
-                -- 新玩家
                 print("[SaveSystem] 新玩家，无存档数据")
                 saveConfirmed_ = true
                 initialized_   = true
@@ -415,12 +561,22 @@ function SSS.Init(onComplete)
     end)
 end
 
---- 常规保存（序列化 → 本地 → 云端）
+--- 常规保存（序列化 → 消毒 → 本地 → 云端）
 function SSS.Save()
-    if not saveConfirmed_ or saving_ then return end
+    if not saveConfirmed_ or saving_ then
+        if saving_ then
+            -- 保存进行中，标记 pendingSave，完成后用最新数据重发
+            pendingSave_ = true
+        end
+        return
+    end
     saving_ = true
+    pendingSave_ = false
 
     local saveData = SaveBridge.Serialize()
+
+    -- 数据消毒：NaN / Inf / 非法类型
+    saveData = SanitizeTable(saveData)
 
     -- 先写本地（同步，确保不丢）
     SaveLocal(saveData)
@@ -428,13 +584,18 @@ function SSS.Save()
     -- 再写云端（异步）
     SaveToCloud(saveData, function(ok)
         saving_ = false
-        if not ok then
-            -- 安排重试
-            pendingSave_ = saveData
-            retryCount_  = 0
-            retryTimer_  = RETRY_BASE
+        if ok then
+            retryCount_ = 0
+            retryTimer_ = -1
+            -- 检查是否有挂起的保存请求
+            if pendingSave_ then
+                pendingSave_ = false
+                SSS.Save()  -- 用最新数据重发
+            end
         else
-            pendingSave_ = nil
+            -- 安排重试（用最新数据）
+            retryCount_ = 0
+            retryTimer_ = RETRY_BASE
         end
     end)
 
@@ -448,7 +609,10 @@ function SSS.SaveNow()
     if not saveConfirmed_ then return end
     autoSaveTimer_ = SAVE_INTERVAL
     dirtyTimer_    = -1
-    if saving_ then return end
+    if saving_ then
+        pendingSave_ = true  -- 进行中则挂起，完成后用最新数据重发
+        return
+    end
     SSS.Save()
 end
 
@@ -460,20 +624,44 @@ function SSS.MarkDirty()
     end
 end
 
---- 每帧更新（管理自动保存 / 脏数据 / 重试计时器）
+--- 每帧更新（管理自动保存 / 脏数据 / 重试 / 超时计时器）
 ---@param dt number
 function SSS.Update(dt)
     if not initialized_ or not saveConfirmed_ then return end
 
-    -- 累计游戏时长
     playTime_ = playTime_ + dt
 
-    -- ---- 自动保存 ----
-    autoSaveTimer_ = autoSaveTimer_ - dt
-    if autoSaveTimer_ <= 0 then
-        autoSaveTimer_ = SAVE_INTERVAL
-        if not saving_ then
-            SSS.Save()
+    -- ---- 超时保护 ----
+    if saveTimeoutTimer_ > 0 then
+        saveTimeoutTimer_ = saveTimeoutTimer_ - dt
+        if saveTimeoutTimer_ <= 0 then
+            saveTimeoutTimer_ = -1
+            print("[SaveSystem] 云端保存超时 (" .. SAVE_TIMEOUT .. "s)")
+
+            -- 递增 generation 使迟到的回调失效
+            saveGeneration_ = saveGeneration_ + 1
+            -- 预消耗序列号：即使旧回调到达也无法用旧 seq 覆盖
+            confirmedSeq_ = math.max(confirmedSeq_, saveSeq_)
+
+            saving_ = false
+            OnSaveFailed()
+
+            -- 检查挂起的保存
+            if pendingSave_ then
+                pendingSave_ = false
+                SSS.Save()
+            end
+        end
+    end
+
+    -- ---- 自动保存（熔断时跳过） ----
+    if not savePaused_ then
+        autoSaveTimer_ = autoSaveTimer_ - dt
+        if autoSaveTimer_ <= 0 then
+            autoSaveTimer_ = SAVE_INTERVAL
+            if not saving_ then
+                SSS.Save()
+            end
         end
     end
 
@@ -482,34 +670,23 @@ function SSS.Update(dt)
         dirtyTimer_ = dirtyTimer_ - dt
         if dirtyTimer_ <= 0 then
             dirtyTimer_ = -1
-            if not saving_ then
+            if not saving_ and not savePaused_ then
                 SSS.Save()
             end
         end
     end
 
-    -- ---- 云端重试 ----
+    -- ---- 云端重试（用最新数据） ----
     if retryTimer_ > 0 then
         retryTimer_ = retryTimer_ - dt
-        if retryTimer_ <= 0 and pendingSave_ and not saving_ then
+        if retryTimer_ <= 0 and not saving_ then
             retryCount_ = retryCount_ + 1
             if retryCount_ <= MAX_RETRY then
-                print("[SaveSystem] 云端重试 (" .. retryCount_ .. "/" .. MAX_RETRY .. ")")
-                saving_ = true
-                SaveToCloud(pendingSave_, function(ok)
-                    saving_ = false
-                    if ok then
-                        pendingSave_ = nil
-                        retryTimer_  = -1
-                    else
-                        -- 指数退避
-                        retryTimer_ = RETRY_BASE * (3 ^ retryCount_)
-                    end
-                end)
+                print("[SaveSystem] 云端重试 (" .. retryCount_ .. "/" .. MAX_RETRY .. ")，使用最新数据")
+                SSS.Save()
             else
                 print("[SaveSystem] 云端重试用尽，等待下次自动保存")
-                pendingSave_ = nil
-                retryTimer_  = -1
+                retryTimer_ = -1
             end
         end
     end
@@ -531,16 +708,34 @@ function SSS.IsInitialized()
     return initialized_
 end
 
---- 存档健康状态（已确认且无待重试数据）
+--- 存档健康状态（已确认且无连续失败）
 ---@return boolean
 function SSS.IsSaveHealthy()
-    return saveConfirmed_ and pendingSave_ == nil
+    return saveConfirmed_ and consecutiveFails_ == 0
 end
 
 --- 是否正在加载
 ---@return boolean
 function SSS.IsLoading()
     return loading_
+end
+
+--- 是否处于熔断状态
+---@return boolean
+function SSS.IsSavePaused()
+    return savePaused_
+end
+
+--- 是否显示存档警告
+---@return boolean
+function SSS.IsWarningShown()
+    return warningShown_
+end
+
+--- 连续失败次数
+---@return number
+function SSS.GetConsecutiveFails()
+    return consecutiveFails_
 end
 
 --- 注册云端保存成功回调

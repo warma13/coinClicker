@@ -15,7 +15,7 @@ local SB = {}
 -- 常量
 -- ---------------------------------------------------------------------------
 
-local CURRENT_VERSION = 2
+local CURRENT_VERSION = 3
 
 --- inline 分组名（SaveBridge 自身管理序列化/反序列化的组）
 local INLINE_GROUPS = {
@@ -335,7 +335,13 @@ function SB.Deserialize(data)
         end
         sk.cooldown = nil
     end
-    S.stamina = miscData.stamina or 0
+    -- 体力离线恢复：根据离线时间自动回复
+    local savedStamina = miscData.stamina or 0
+    local offlineStaminaGain = math.floor(offlineSec * (S.staminaRegenRate or 0.33))
+    S.stamina = math.min(S.staminaMax, savedStamina + offlineStaminaGain)
+    if offlineStaminaGain > 0 and savedStamina < S.staminaMax then
+        print("[SaveBridge] 离线体力恢复: +" .. math.min(offlineStaminaGain, S.staminaMax - savedStamina) .. " (离线 " .. offlineSec .. "s)")
+    end
 
     -- -------- activeBuffs（恢复 + 离线扣减） --------
     S.activeBuffs = {}
@@ -441,6 +447,30 @@ local MIGRATIONS = {
         data.sugarlump.lumps = (data.sugarlump.lumps or 0) + 3
         data.sugarlump.totalHarvested = (data.sugarlump.totalHarvested or 0) + 3
         print("[SaveBridge] v1→v2 迁移: 补偿 3 个人脉币")
+    end,
+    [2] = function(data)
+        -- v2 → v3: 老玩家补偿 5 个时光沙漏
+        data.inventory = data.inventory or {}
+        -- 找一个空槽位放入，或叠加到已有的时光沙漏上
+        local found = false
+        for k, v in pairs(data.inventory) do
+            if k ~= "_sg" and type(v) == "table" and v.id == "time_hourglass" then
+                v.n = (v.n or 1) + 5
+                found = true
+                break
+            end
+        end
+        if not found then
+            -- 找第一个空槽位（1~20）
+            for i = 1, 20 do
+                local key = tostring(i)
+                if not data.inventory[key] then
+                    data.inventory[key] = { id = "time_hourglass", n = 5 }
+                    break
+                end
+            end
+        end
+        print("[SaveBridge] v2→v3 迁移: 补偿 5 个时光沙漏")
     end,
 }
 

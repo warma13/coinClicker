@@ -180,8 +180,25 @@ function CoinArea.RefreshStats()
 
     -- 体力条
     if staminaLabel_ then
-        local staminaText = "体力 " .. math.floor(S.stamina) .. "/" .. S.staminaMax
-        if staminaText ~= lastStaminaText_ then
+        local sta = math.floor(S.stamina)
+        local staminaText
+        if sta >= S.staminaMax then
+            staminaText = "体力 " .. sta .. "/" .. S.staminaMax .. " (已满)"
+        else
+            -- 计算到下一点的倒计时（用浮点小数部分）
+            local frac = S.stamina - sta  -- 已累积的小数部分
+            local secToNext = math.ceil((1 - frac) / S.staminaRegenRate)
+            local m = math.floor(secToNext / 60)
+            local sec = secToNext % 60
+            staminaText = string.format("体力 %d/%d (下一点 %d:%02d)", sta, S.staminaMax, m, sec)
+        end
+        -- 未满时每秒都更新（倒计时在变化），已满时用缓存
+        if sta >= S.staminaMax then
+            if staminaText ~= lastStaminaText_ then
+                lastStaminaText_ = staminaText
+                staminaLabel_:SetText(staminaText)
+            end
+        else
             lastStaminaText_ = staminaText
             staminaLabel_:SetText(staminaText)
         end

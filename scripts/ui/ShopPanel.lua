@@ -28,6 +28,10 @@ local amountBtnCache_ = {}  -- { [1]=widget, [10]=widget, [100]=widget }
 local buildingUpgrades_ = nil
 local upgradeContainer_ = nil
 local lastVisibleSnap_ = ""
+local iconBarDirty_ = true  -- 结构可能变化时置 true（购买建筑/升级后）
+-- 缓存上一轮 visible 列表的引用，avoid 刷新时复用
+local cachedBldVisible_ = {}
+local cachedClkVisible_ = {}
 
 -- ======== 小游戏解锁跟踪 ========
 -- 有小游戏的建筑索引集合，用于检测 count 从 0 变 >=1 时触发列表重建
@@ -486,27 +490,36 @@ local function BuildUnifiedIconBar(container)
     end
 end
 
---- 刷新图标栏（diff 检测）
+--- 刷新图标栏（脏标记 + afford 缓存）
 local function RefreshIconBar()
     if not upgradeContainer_ then return end
 
-    local bldVisible = {}
-    if buildingUpgrades_ and buildings_ then
-        bldVisible = BuildingUpgrades.GetVisible(buildingUpgrades_, buildings_)
-    end
-    local clkVisible = GetVisibleClickUpgrades()
-    local newSnap = MakeVisibleSnap(bldVisible, clkVisible)
+    -- 结构可能变化时（购买建筑/升级），才重新遍历生成 snap
+    if iconBarDirty_ then
+        iconBarDirty_ = false
 
-    -- 结构变化 → 重建
-    if newSnap ~= lastVisibleSnap_ then
-        BuildUnifiedIconBar(upgradeContainer_)
-        return
+        local bldVisible = {}
+        if buildingUpgrades_ and buildings_ then
+            bldVisible = BuildingUpgrades.GetVisible(buildingUpgrades_, buildings_)
+        end
+        local clkVisible = GetVisibleClickUpgrades()
+        local newSnap = MakeVisibleSnap(bldVisible, clkVisible)
+
+        if newSnap ~= lastVisibleSnap_ then
+            -- 结构变化 → 重建整个图标栏
+            cachedBldVisible_ = bldVisible
+            cachedClkVisible_ = clkVisible
+            BuildUnifiedIconBar(upgradeContainer_)
+            return
+        end
+        cachedBldVisible_ = bldVisible
+        cachedClkVisible_ = clkVisible
     end
 
     -- 仅 afford 变化 → diff 更新样式（使用缓存引用，避免 FindById）
     local coins = GameState.coins
 
-    for _, u in ipairs(bldVisible) do
+    for _, u in ipairs(cachedBldVisible_) do
         if not u.bought then
             local kid = "bu_" .. u.buildingIndex .. "_" .. u.tierIndex
             local canAfford = coins >= u.cost
@@ -532,7 +545,7 @@ local function RefreshIconBar()
         end
     end
 
-    for _, info in ipairs(clkVisible) do
+    for _, info in ipairs(cachedClkVisible_) do
         local kid = "cu_" .. info.index
         local canAfford = coins >= info.upgrade.baseCost
         if canAfford ~= iconAffordCache_[kid] then
@@ -998,6 +1011,11 @@ end
 ---@return number
 function ShopPanel.GetBuyAmount()
     return buyAmount_
+end
+
+--- 标记升级图标栏需要重新检查结构（购买建筑/升级后调用）
+function ShopPanel.MarkIconBarDirty()
+    iconBarDirty_ = true
 end
 
 return ShopPanel

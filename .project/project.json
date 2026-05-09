@@ -1,0 +1,46 @@
+{
+  "$schema": "../schemas/project.schema.json",
+  "project_id": "p_kacc",
+  "author": {
+    "id": "1779057459"
+  },
+  "entry": "main.lua",
+  "version": "1.0.8",
+  "taptap_publish": {
+    "title": "商业帝国大亨",
+    "category": "simulation",
+    "screen_orientation": "landscape",
+    "collection_type": "sce",
+    "developer_id": 264371,
+    "description": "点击屏幕，赚钱，然后变成宇宙财团",
+    "trial_note": "v1.0.7",
+    "app_platforms": "1,2",
+    "gameplay_demo_video_source": "https://tapcode-sce.spark.xd.com/videos/p_kacc/1777696940686-rec_95f81567-6538-4bc8-8f60-96d7f41bb08c.mp4",
+    "app_id": 851637,
+    "miniapp_id": "tapmclrszyq8kbuaro"
+  },
+  "assets": {
+    "icon": "./game_material/ICON_2026-05-02T04-17-13_01.jpg",
+    "screenshots": [
+      "./game_material/SCREENSHOT_2026-05-02T04-17-13_01.png",
+      "./game_material/SCREENSHOT_2026-05-02T04-17-13_02.png",
+      "./game_material/SCREENSHOT_2026-05-02T04-17-13_03.jpg"
+    ],
+    "promotional_image": "./game_material/PROMO_2026-05-02T04-17-13_01.jpg",
+    "icon_url": "https://tapcode-sce.spark.xd.com/assets/game_material/商业帝国大亨/ICON_2026-05-02T04-17-13_01.jpg",
+    "screenshot_urls": [
+      "https://tapcode-sce.spark.xd.com/assets/game_material/商业帝国大亨/SCREENSHOT_2026-05-02T04-17-13_01.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/商业帝国大亨/SCREENSHOT_2026-05-02T04-17-13_02.png",
+      "https://tapcode-sce.spark.xd.com/assets/game_material/商业帝国大亨/SCREENSHOT_2026-05-02T04-17-13_03.jpg"
+    ],
+    "promotional_image_url": "https://tapcode-sce.spark.xd.com/assets/game_material/商业帝国大亨/PROMO_2026-05-02T04-17-13_01.jpg",
+    "cover_horizontal": "./game_material/COVER_HORIZONTAL_2026-05-02T04-48-22_01.png",
+    "cover_horizontal_url": "https://tapcode-sce.spark.xd.com/assets/game_material/商业帝国大亨/COVER_HORIZONTAL_2026-05-02T04-48-22_01.png",
+    "cover_vertical": "./game_material/COVER_VERTICAL_2026-05-02T04-48-22_01.png",
+    "cover_vertical_url": "https://tapcode-sce.spark.xd.com/assets/game_material/商业帝国大亨/COVER_VERTICAL_2026-05-02T04-48-22_01.png"
+  },
+  "metadata": {
+    "updated_at": "2026-05-02T04:49:13.329Z",
+    "promo_dependent_hash": "6745ef44d889e9c81d0ad685dac56413"
+  }
+}

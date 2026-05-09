@@ -329,7 +329,7 @@ BuildPopup = function(def)
                     adBtn,
                     -- 提示文字
                     UI.Label {
-                        text = "时间可叠加，离线也会消耗",
+                        text = "时间可叠加",
                         fontSize = 10,
                         fontColor = { 120, 110, 140, 150 },
                         textAlign = "center",

@@ -25,6 +25,9 @@ local iconCache_ = {}          -- path -> nvgImageHandle
 -- 活跃文本队列（纯数据）
 local activeTexts = {}
 
+-- Loading 状态（全屏遮罩 + 进度条）
+local loading_ = nil  -- { text, elapsed }
+
 --- 创建占位容器（保持 AppLayout 兼容，不包含任何子元素）
 ---@return table container UI 定义
 function FloatingText.Create()
@@ -123,9 +126,24 @@ function FloatingText.Show(text, x, y, color, icon, duration)
     }
 end
 
+--- 显示全屏加载遮罩（带进度条动画）
+---@param text string|nil 提示文本，默认 "加载中..."
+function FloatingText.ShowLoading(text)
+    loading_ = { text = text or "加载中...", elapsed = 0 }
+end
+
+--- 隐藏加载遮罩
+function FloatingText.HideLoading()
+    loading_ = nil
+end
+
 --- 每帧生命周期更新（纯数据运算，无 UI 调用）
 ---@param dt number 帧时间
 function FloatingText.Update(dt)
+    if loading_ then
+        loading_.elapsed = loading_.elapsed + dt
+    end
+
     if #activeTexts == 0 then return end
 
     for i = #activeTexts, 1, -1 do
@@ -182,6 +200,54 @@ function FloatingText.Render(vg)
         nvgFontBlur(vg, 0)
         nvgFillColor(vg, nvgRGBA(bc[1], bc[2], bc[3], alpha))
         nvgText(vg, drawX, currentY, entry.text)
+    end
+
+    -- ===== Loading 遮罩 =====
+    if loading_ then
+        local dpr = graphics:GetDPR()
+        local sw = graphics:GetWidth() / dpr
+        local sh = graphics:GetHeight() / dpr
+
+        -- 半透明遮罩
+        nvgBeginPath(vg)
+        nvgRect(vg, 0, 0, sw, sh)
+        nvgFillColor(vg, nvgRGBA(0, 0, 0, 100))
+        nvgFill(vg)
+
+        -- 卡片
+        local cardW, cardH = 220, 76
+        local cx, cy = sw * 0.5, sh * 0.5
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, cx - cardW / 2, cy - cardH / 2, cardW, cardH, 12)
+        nvgFillColor(vg, nvgRGBA(30, 32, 42, 235))
+        nvgFill(vg)
+
+        -- 文字
+        nvgFontFace(vg, "sans")
+        nvgFontSize(vg, 15)
+        nvgFontBlur(vg, 0)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE)
+        nvgFillColor(vg, nvgRGBA(220, 225, 240, 255))
+        nvgText(vg, cx, cy - 10, loading_.text)
+
+        -- 进度条背景
+        local barW, barH = 180, 6
+        local barX = cx - barW / 2
+        local barY = cy + 12
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, barX, barY, barW, barH, 3)
+        nvgFillColor(vg, nvgRGBA(55, 58, 72, 255))
+        nvgFill(vg)
+
+        -- 进度条动画（往返滑动）
+        local t = loading_.elapsed
+        local pos = (math.sin(t * 2.5) + 1) * 0.5  -- 0~1 往返
+        local fillW = barW * 0.35
+        local fillX = barX + (barW - fillW) * pos
+        nvgBeginPath(vg)
+        nvgRoundedRect(vg, fillX, barY, fillW, barH, 3)
+        nvgFillColor(vg, nvgRGBA(90, 170, 255, 255))
+        nvgFill(vg)
     end
 end
 

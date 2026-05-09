@@ -150,6 +150,10 @@ function GM.SetUI(refs)
     ui_.inventoryPanel      = refs.inventoryPanel
     -- 缓存高频访问的 UI 引用（避免每帧 FindById）
     achieveCountLabel_ = refs.uiRoot and refs.uiRoot:FindById("achieveCountLabel") or nil
+
+    -- 注入 FloatingText 到 AdManager（SetUI 时已可用）
+    local AdManager = require("core.AdManager")
+    AdManager.SetFloatingText(refs.floatingText)
 end
 
 -- ============================================================================

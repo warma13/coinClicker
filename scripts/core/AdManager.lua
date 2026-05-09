@@ -28,6 +28,24 @@ local streakBonusHours_ = 1          -- 当前离线加速小时数
 --- 外部回调（面板刷新等）
 local onStateChanged_  = nil         -- function()
 
+--- 全局 FloatingText 引用（由 SetFloatingText 注入）
+local floatingText_    = nil
+
+--- 设置全局 FloatingText（初始化时调用一次即可）
+function AM.SetFloatingText(ft)
+    floatingText_ = ft
+end
+
+--- 内部 toast 工具：在屏幕上方居中显示浮字
+local function Toast(text, color)
+    local ft = floatingText_
+    if not ft then return end
+    local dpr = graphics:GetDPR()
+    local cx = graphics:GetWidth() / dpr * 0.5
+    local cy = graphics:GetHeight() / dpr * 0.15
+    ft.Show(text, cx, cy, color or { 255, 255, 255, 255 })
+end
+
 -- ============================================================================
 -- 工具函数
 -- ============================================================================
@@ -118,14 +136,20 @@ end
 
 --- 统一广告播放入口
 ---@param onSuccess function  广告播放成功后的回调（发放业务奖励）
----@param ctx table|nil       上下文（传入 floatingText 等 UI 引用）
+---@param ctx table|nil       上下文（保留兼容，不再需要传 floatingText）
 function AM.ShowRewardAd(onSuccess, ctx)
     -- 先检查跨天
     DayRollover()
 
+    -- 检查每日上限
+    if todayCount_ >= AdConfig.DAILY_LIMIT then
+        print("[AdManager] 今日广告次数已达上限 " .. AdConfig.DAILY_LIMIT)
+        Toast("今日广告次数已用完", { 255, 180, 80, 255 })
+        return
+    end
+
     -- 检查免广卡
     if AM.IsAdFreeToday() then
-        -- 免广卡生效，直接发奖励
         local ok, err = pcall(function()
             AM.Record()
             if onSuccess then onSuccess() end
@@ -133,31 +157,36 @@ function AM.ShowRewardAd(onSuccess, ctx)
         if not ok then
             print("[AdManager] 免广卡回调异常: " .. tostring(err))
         end
-        -- 浮字提示
-        if ctx and ctx.floatingText then
-            local dpr = graphics:GetDPR()
-            local cx = graphics:GetWidth() / dpr * 0.5
-            local cy = graphics:GetHeight() / dpr * 0.15
-            ctx.floatingText.Show("免广卡生效，直接领取", cx, cy, { 100, 255, 100, 255 })
-        end
+        Toast("免广卡生效，直接领取", { 100, 255, 100, 255 })
         return
+    end
+
+    -- 检查 SDK 是否存在
+    if not sdk then
+        print("[AdManager] SDK 不存在，无法播放广告")
+        Toast("广告不可用", { 255, 120, 80, 255 })
+        return
+    end
+
+    -- 显示加载进度条
+    if floatingText_ then
+        floatingText_.ShowLoading("广告加载中...")
     end
 
     -- 播放真正的广告
     local ok, err = pcall(function()
         sdk:ShowRewardVideoAd(function(result)
+            -- 隐藏加载进度条
+            if floatingText_ then
+                floatingText_.HideLoading()
+            end
             local ok2, err2 = pcall(function()
                 if result.success then
                     AM.Record()
                     if onSuccess then onSuccess() end
                 else
                     print("[AdManager] 广告未完成: " .. tostring(result.msg))
-                    if ctx and ctx.floatingText then
-                        local dpr = graphics:GetDPR()
-                        local cx = graphics:GetWidth() / dpr * 0.5
-                        local cy = graphics:GetHeight() / dpr * 0.15
-                        ctx.floatingText.Show("广告未完成", cx, cy, { 255, 120, 80, 255 })
-                    end
+                    Toast("看完广告才能领取奖励哦", { 255, 180, 80, 255 })
                 end
             end)
             if not ok2 then
@@ -166,7 +195,12 @@ function AM.ShowRewardAd(onSuccess, ctx)
         end)
     end)
     if not ok then
+        -- 隐藏加载进度条
+        if floatingText_ then
+            floatingText_.HideLoading()
+        end
         print("[AdManager] SDK 调用异常: " .. tostring(err))
+        Toast("广告加载失败", { 255, 120, 80, 255 })
     end
 end
 
@@ -273,6 +307,16 @@ end
 --- 获取免广卡阈值
 function AM.GetAdFreeThreshold()
     return AdConfig.AD_FREE_THRESHOLD
+end
+
+--- 获取每日上限
+function AM.GetDailyLimit()
+    return AdConfig.DAILY_LIMIT
+end
+
+--- 获取今日剩余次数
+function AM.GetRemainingToday()
+    return math.max(0, AdConfig.DAILY_LIMIT - todayCount_)
 end
 
 --- 设置状态变化回调

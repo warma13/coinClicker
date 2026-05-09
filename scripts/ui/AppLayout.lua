@@ -156,7 +156,7 @@ function AppLayout.Build()
                 position = "absolute",
                 left = 6, bottom = 4,
                 zIndex = 9999,
-                text = "v1.0.4",
+                text = "v1.0.7",
                 fontSize = 9,
                 fontColor = { 100, 100, 120, 120 },
                 pointerEvents = "none",

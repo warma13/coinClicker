@@ -5,6 +5,8 @@
 
 local UI = require("urhox-libs/UI")
 local GameState = require("core.GameState")
+local SkillManager = require("core.SkillManager")
+local SkillDefs = require("config.SkillDefs")
 local StatsBar = require("ui.StatsBar")
 
 local CoinArea = {}
@@ -15,6 +17,7 @@ local coinCountLabel_ = nil
 local cpsLabel_ = nil
 local staminaFill_ = nil
 local staminaLabel_ = nil
+local speedHint_ = nil       -- 疾速签单提示标签
 local animTimer_ = 0
 local onCoinClick_ = nil  -- 点击金币回调
 
@@ -23,6 +26,8 @@ local lastCoinText_ = ""
 local lastCpsText_ = ""
 local lastStaminaText_ = ""
 local lastStaminaPct_ = -1
+local lastSpeedHintVisible_ = false
+local lastSpeedHintText_ = ""
 
 --- 创建点击区域 UI 定义
 ---@param onCoinClick function|nil 点击金币回调 function(x, y)
@@ -111,6 +116,30 @@ function CoinArea.Create(onCoinClick)
                         scale = 1.0,
                         transition = "scale 0.1s easeOut",
                     },
+                    -- 疾速签单生效提示
+                    UI.Panel {
+                        id = "speedClickHint",
+                        flexDirection = "row",
+                        alignItems = "center",
+                        justifyContent = "center",
+                        gap = 4,
+                        marginTop = 8,
+                        paddingLeft = 10, paddingRight = 10,
+                        paddingTop = 4, paddingBottom = 4,
+                        borderRadius = 10,
+                        backgroundColor = { 255, 180, 40, 30 },
+                        borderWidth = 1,
+                        borderColor = { 255, 200, 60, 100 },
+                        pointerEvents = "none",
+                        children = {
+                            UI.Label {
+                                id = "speedClickHintLabel",
+                                text = "",
+                                fontSize = 11,
+                                fontColor = { 255, 220, 80, 220 },
+                            },
+                        },
+                    },
                 },
             },
             -- Buff 进度条栏（固定底部）
@@ -127,6 +156,8 @@ function CoinArea.Init(root)
     cpsLabel_ = root:FindById("cpsLabel")
     staminaFill_ = root:FindById("staminaFill")
     staminaLabel_ = root:FindById("staminaLabel")
+    speedHint_ = root:FindById("speedClickHint")
+    if speedHint_ then speedHint_:SetVisible(false) end
 end
 
 --- 播放点击放缩动画（先放大再回弹）
@@ -185,12 +216,11 @@ function CoinArea.RefreshStats()
         if sta >= S.staminaMax then
             staminaText = "体力 " .. sta .. "/" .. S.staminaMax .. " (已满)"
         else
-            -- 计算到下一点的倒计时（用浮点小数部分）
-            local frac = S.stamina - sta  -- 已累积的小数部分
+            local frac = S.stamina - sta
             local secToNext = math.ceil((1 - frac) / S.staminaRegenRate)
             local m = math.floor(secToNext / 60)
             local sec = secToNext % 60
-            staminaText = string.format("体力 %d/%d (下一点 %d:%02d)", sta, S.staminaMax, m, sec)
+            staminaText = string.format("体力 %d/%d (%d:%02d)", sta, S.staminaMax, m, sec)
         end
         -- 未满时每秒都更新（倒计时在变化），已满时用缓存
         if sta >= S.staminaMax then
@@ -208,6 +238,26 @@ function CoinArea.RefreshStats()
         if pct ~= lastStaminaPct_ then
             lastStaminaPct_ = pct
             staminaFill_:SetStyle({ width = pct .. "%" })
+        end
+    end
+
+    -- 疾速签单生效提示
+    if speedHint_ then
+        local isActive = SkillManager.IsActive("speedClick")
+        if isActive ~= lastSpeedHintVisible_ then
+            lastSpeedHintVisible_ = isActive
+            speedHint_:SetVisible(isActive)
+        end
+        if isActive then
+            local info = SkillManager.GetSkillInfo("speedClick")
+            local rate = (info and info.params) and info.params.rate or 10
+            local gain = S.coinsPerClick * S.buffCpcMul * rate
+            local hintText = "疾速签单生效中  +" .. S.FormatNumber(gain) .. "/秒"
+            if hintText ~= lastSpeedHintText_ then
+                lastSpeedHintText_ = hintText
+                local label = speedHint_:FindById("speedClickHintLabel")
+                if label then label:SetText(hintText) end
+            end
         end
     end
 end

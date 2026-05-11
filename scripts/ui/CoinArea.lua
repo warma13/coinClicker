@@ -251,7 +251,7 @@ function CoinArea.RefreshStats()
         if isActive then
             local info = SkillManager.GetSkillInfo("speedClick")
             local rate = (info and info.params) and info.params.rate or 10
-            local gain = S.coinsPerClick * S.buffCpcMul * rate
+            local gain = S.coinsPerClick * S.buffCpcMul * SkillManager.GetClickMultiplier() * rate
             local hintText = "疾速签单生效中  +" .. S.FormatNumber(gain) .. "/秒"
             if hintText ~= lastSpeedHintText_ then
                 lastSpeedHintText_ = hintText

@@ -39,12 +39,13 @@ local FactoryPanel      = require("ui.FactoryPanel")
 local ShipmentPanel     = require("ui.ShipmentPanel")
 local ECommercePanel    = require("ui.ECommercePanel")
 local InventoryPanel    = require("ui.InventoryPanel")
--- local AdPanel           = require("ui.AdPanel")  -- 福利入口已隐藏
+local AdPanel           = require("ui.AdPanel")
 local SkillBar          = require("ui.SkillBar")
 local LeaderboardPanel  = require("ui.LeaderboardPanel")
 local SettingsPanel     = require("ui.SettingsPanel")
 local DebugPanel        = require("ui.DebugPanel")
 local Sidebar           = require("ui.Sidebar")
+local GameVersion       = require("Game.GameVersion")
 
 local AppLayout = {}
 
@@ -67,6 +68,7 @@ end
 --- 创建一个互斥的 onOpen 回调
 local function MakeOpenCallback(panel)
     return function()
+        Tooltip.Hide()
         CloseOtherMinigames(panel)
         panel.Toggle()
     end
@@ -156,7 +158,7 @@ function AppLayout.Build()
                 position = "absolute",
                 left = 6, bottom = 4,
                 zIndex = 9999,
-                text = "v1.0.7",
+                text = GameVersion.GetVersionString(),
                 fontSize = 9,
                 fontColor = { 100, 100, 120, 120 },
                 pointerEvents = "none",
@@ -188,6 +190,7 @@ function AppLayout.Build()
         DragonPanel,          -- 7: 龙
         SkillPanel,           -- 8: 技能
         InventoryPanel,       -- 9: 仓库
+        AdPanel,              -- 10: 福利
     }, FloatingText)
     Sidebar.Init(root)
 
@@ -268,6 +271,8 @@ function AppLayout.Build()
 
     InventoryPanel.Init(drawerContent, GameManager)
     GameManager.SetInventoryPanel(InventoryPanel)
+
+    AdPanel.Init(drawerContent, { floatingText = FloatingText })
 
     GardenPanel.Init(root, GameManager)
     GameManager.SetGardenPanel(GardenPanel)

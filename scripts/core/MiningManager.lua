@@ -191,7 +191,17 @@ function MM.Init()
     hasMinecart_ = false
     GenerateGrid()
 
-    SaveBridge.Register("mining", MM.GetSaveData, MM.LoadSaveData)
+    SaveBridge.Register("mining", MM.GetSaveData, MM.LoadSaveData, function()
+        local mc = GetMineCount()
+        maxPicks_ = MC.GetMaxPicks(mc)
+        picks_ = maxPicks_
+        regenTimer_ = 0
+        hasMinecart_ = false
+        boardsCleared_ = 0
+        streak_ = 0
+        totalRevealed_ = 0
+        GenerateGrid()
+    end)
 end
 
 -- ============================================================================

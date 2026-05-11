@@ -48,7 +48,14 @@ function AM.Init()
 
     print("[AchievementManager] 初始化完成，总成就数: " .. AchievementDefs.totalCount)
 
-    SaveBridge.Register("achievements", AM.GetSaveData, AM.LoadSaveData)
+    SaveBridge.Register("achievements", AM.GetSaveData, AM.LoadSaveData, function()
+        unlocked_ = {}
+        unlockedCount_ = 0
+        milkDecimal_ = 0
+        kittenMul_ = 1
+        checkCooldown_ = 0
+        ready_ = false
+    end)
 end
 
 --- 设置成就解锁回调

@@ -14,6 +14,8 @@ local SkillBar       = require("ui.SkillBar")
 local LeaderboardPanel = require("ui.LeaderboardPanel")
 local CoinParticle   = require("ui.CoinParticle")
 local FloatingText   = require("ui.FloatingText")
+local GameVersion    = require("Game.GameVersion")
+local AntiCheatManager = require("core.AntiCheatManager")
 
 local root_           = nil   -- UI root 引用
 local skillBarTimer_   = 0
@@ -64,8 +66,23 @@ function Start()
     GameManager.Init()
     SaveBridge.SetBuildingUpgrades(GameManager.buildingUpgrades)
 
+    -- 注入反作弊回调
+    AntiCheatManager.SetFloatingTextFn(function(text, color, icon)
+        GameManager.ShowFloatingText(text, color, icon)
+    end)
+    AntiCheatManager.SetSlotSwitchFn(function(onDone)
+        SlotSaveSystem.SwitchToNewSlot(function()
+            -- 槽位切换完成后刷新 UI
+            AppLayout.OnSaveLoaded(root_)
+            if onDone then onDone() end
+        end)
+    end)
+
     -- 构建 UI 树并初始化所有模块
     root_ = AppLayout.Build()
+
+    -- 初始化版本检测
+    GameVersion.Init()
 
     -- 初始化 NanoVG（金币粒子 + 浮动文本使用 NanoVG 直接绘制，避免 Yoga 布局开销）
     vg_ = nvgCreate(0)
@@ -117,6 +134,7 @@ function HandleUpdate(eventType, eventData)
 
     LeaderboardPanel.Update(dt)
     AudioManager.Update(dt)
+    GameVersion.Update(dt)
 end
 
 ---@param eventType string

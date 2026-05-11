@@ -6,11 +6,13 @@
 
 local GameState = require("core.GameState")
 local SkillDefs = require("config.SkillDefs")
+local Buildings = require("config.Buildings")
 local SM = {}
 
 -- 内部状态
 local speedClickAccum_ = 0      -- 疾速点击累计时间
 local onClickCallback_ = nil    -- 点击回调 fn(x, y, skipRateLimit)
+local onInstantEffect_  = nil   -- 即时技能效果回调 fn(skillId, result)
 
 -- ============================================================================
 -- 初始化
@@ -26,12 +28,19 @@ function SM.Init(onClickCb)
     end
     for _, def in ipairs(SkillDefs.list) do
         if not S.skills[def.id] then
-            S.skills[def.id] = { level = 0, active = false, timer = 0 }
+            S.skills[def.id] = { level = 1, active = false, timer = 0 }
         end
-        -- 迁移旧存档：移除 cooldown 字段
+        -- 迁移旧存档
         local st = S.skills[def.id]
         st.cooldown = nil
+        if st.level <= 0 then st.level = 1 end  -- 旧存档自动解锁
     end
+end
+
+--- 设置即时技能效果回调
+---@param cb function fn(skillId, result)
+function SM.SetOnInstantEffect(cb)
+    onInstantEffect_ = cb
 end
 
 -- ============================================================================
@@ -88,6 +97,16 @@ function SM.Update(dt)
             cpsSt.active = false
         end
     end
+
+    -- ── 签单加成（持续型） ──
+    local cbSt = skills.clickBoost
+    if cbSt and cbSt.active and cbSt.timer > 0 then
+        cbSt.timer = cbSt.timer - dt
+        if cbSt.timer <= 0 then
+            cbSt.timer = 0
+            cbSt.active = false
+        end
+    end
 end
 
 -- ============================================================================
@@ -109,11 +128,81 @@ function SM.GetCpsMultiplier()
 end
 
 -- ============================================================================
+-- 点击收益倍率查询（供 GameManager 调用）
+-- ============================================================================
+
+--- 获取当前签单加成技能的倍率（未激活返回 1）
+---@return number multiplier
+function SM.GetClickMultiplier()
+    local skills = GameState.skills
+    local cbSt = skills.clickBoost
+    if not cbSt or not cbSt.active or (cbSt.timer or 0) <= 0 then
+        return 1
+    end
+    local level = cbSt.level
+    local params = SkillDefs.clickBoost.levels[level]
+    if not params then return 1 end
+    return params.multiplier
+end
+
+-- ============================================================================
+-- 即时技能执行
+-- ============================================================================
+
+--- 执行「随机扩张」技能
+---@param level number
+---@return table result { buildings = { {name, icon} ... } }
+function SM.ExecuteRandomBuildings(level)
+    local params = SkillDefs.randomBuildings.levels[level]
+    if not params then return { buildings = {} } end
+
+    -- 收集已解锁的建筑（count > 0 的）
+    local unlocked = {}
+    for _, b in ipairs(Buildings.buildings) do
+        if b.count > 0 then
+            unlocked[#unlocked + 1] = b
+        end
+    end
+
+    -- 如果没有已解锁建筑，则把最便宜的作为候选
+    if #unlocked == 0 then
+        unlocked[1] = Buildings.buildings[1]
+    end
+
+    -- 随机选择（可重复选，同一建筑可多次抽中）
+    local chosen = {}
+    local count = params.count
+    for _ = 1, count do
+        local idx = math.random(1, #unlocked)
+        local b = unlocked[idx]
+        b.count = b.count + 1
+        chosen[#chosen + 1] = { name = b.name, icon = b.iconImage or b.icon }
+    end
+
+    return { buildings = chosen }
+end
+
+--- 执行「立即收割」技能
+---@param level number
+---@return table result { coins = number, minutes = number }
+function SM.ExecuteCpsHarvest(level)
+    local params = SkillDefs.cpsHarvest.levels[level]
+    if not params then return { coins = 0, minutes = 0 } end
+
+    local cps = GameState.coinsPerSecond
+    local seconds = params.minutes * 60
+    local gain = cps * seconds
+    GameState.coins = GameState.coins + gain
+
+    return { coins = gain, minutes = params.minutes }
+end
+
+-- ============================================================================
 -- 看广告叠加技能时间
 -- ============================================================================
 
---- 每次看广告增加的时间（秒）= 30分钟
-local AD_BONUS_SECONDS = 1800
+--- 每次看广告增加的时间（秒）= 10分钟
+local AD_BONUS_SECONDS = 600
 
 --- 通过看广告为技能叠加时间（可反复叠加）
 ---@param skillId string

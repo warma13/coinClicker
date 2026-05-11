@@ -43,7 +43,12 @@ function GM.Init()
     totalCasts_     = 0
     activeBuffs_    = {}
 
-    SaveBridge.Register("grimoire", GM.GetSaveData, GM.LoadSaveData)
+    SaveBridge.Register("grimoire", GM.GetSaveData, GM.LoadSaveData, function()
+        currentMana_    = GC.BASE_MANA
+        globalCooldown_ = 0
+        totalCasts_     = 0
+        activeBuffs_    = {}
+    end)
 end
 
 -- ---------------------------------------------------------------------------

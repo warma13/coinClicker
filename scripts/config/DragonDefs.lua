@@ -1,7 +1,7 @@
 -- ============================================================================
 -- config/DragonDefs.lua
 -- AI 合伙人系统数据定义（K1）
--- AI 等级、策略模块、迭代训练成本、AI 洞察
+-- AI 等级、策略模块、迭代训练成本、AI 洞察、天赋树
 -- 金币帝国 · 现实商业主题
 -- 纯数据，无游戏逻辑
 -- ============================================================================
@@ -112,5 +112,249 @@ DD.DRAGON_HARVEST_MUL = 15
 DD.DRAGON_HARVEST_DUR = 60
 DD.DRAGONFLIGHT_MUL = 1111
 DD.DRAGONFLIGHT_DUR = 10
+
+-- ============================================================================
+-- 经验值系统
+-- ============================================================================
+
+--- 经验值倍率基数: XP/sec = log10(max(CPS, 10)) * XP_RATE_BASE
+DD.XP_RATE_BASE = 0.5
+
+--- 天赋解锁等级（5级开始获得天赋点和经验需求）
+DD.TALENT_UNLOCK_LEVEL = 5
+
+--- 每级所需经验值（0-4级无需XP，5级起需要XP + 原有费用双条件）
+DD.XP_THRESHOLDS = {
+    [0]  = 0,
+    [1]  = 0,
+    [2]  = 0,
+    [3]  = 0,
+    [4]  = 0,
+    [5]  = 100,
+    [6]  = 200,
+    [7]  = 400,
+    [8]  = 700,
+    [9]  = 1200,
+    [10] = 2000,
+    [11] = 3500,
+    [12] = 5500,
+    [13] = 8000,
+    [14] = 12000,
+    [15] = 18000,
+    [16] = 26000,
+    [17] = 36000,
+    [18] = 50000,
+    [19] = 70000,
+    [20] = 100000,
+    [21] = 150000,
+    [22] = 220000,
+    [23] = 320000,
+    [24] = 0,      -- 完成态无需XP
+}
+
+--- 获取指定等级所需的 XP
+---@param level number
+---@return number
+function DD.GetXPRequired(level)
+    return DD.XP_THRESHOLDS[level] or 0
+end
+
+-- ============================================================================
+-- 天赋树系统
+-- ============================================================================
+
+--- 天赋树有 4 个分支，每个分支 5 层
+--- 每级（5级起）获得 1 天赋点，共 20 点（5~24级）
+--- 每个分支满点需 1+1+2+2+3 = 9 点，4 个分支共需 36 点
+--- 玩家必须做出取舍（最多满 2 个分支）
+
+DD.TALENT_BRANCHES = {
+    -- ========== 分支1: 商业洞察 ==========
+    {
+        id = "insight",
+        name = "商业洞察",
+        desc = "提升总产量与声望收益",
+        iconImage = "image/icon_chart.png",
+        tiers = {
+            { id = "insight_1", name = "数据分析",    cost = 1, desc = "总产量 +3%",        effect = { cpsMul = 0.03 } },
+            { id = "insight_2", name = "市场洞察",    cost = 1, desc = "总产量 +5%",        effect = { cpsMul = 0.05 } },
+            { id = "insight_3", name = "趋势预测",    cost = 2, desc = "声望加成 +5%",      effect = { prestigeBonus = 0.05 } },
+            { id = "insight_4", name = "战略规划",    cost = 2, desc = "总产量 +8%",        effect = { cpsMul = 0.08 } },
+            { id = "insight_5", name = "全局视野",    cost = 3, desc = "声望加成 +10%",     effect = { prestigeBonus = 0.10 } },
+        },
+    },
+    -- ========== 分支2: 操作优化 ==========
+    {
+        id = "operation",
+        name = "操作优化",
+        desc = "提升点击与费用效率",
+        iconImage = "image/icon_auto_click.png",
+        tiers = {
+            { id = "oper_1", name = "快速反应",      cost = 1, desc = "点击效果 +3%",       effect = { clickBonus = 0.03 } },
+            { id = "oper_2", name = "流程精简",      cost = 1, desc = "产业费用 -2%",       effect = { costReduction = 0.02 } },
+            { id = "oper_3", name = "批量采购",      cost = 2, desc = "升级费用 -3%",       effect = { upgradeCostReduction = 0.03 } },
+            { id = "oper_4", name = "自动化管理",    cost = 2, desc = "点击效果 +5%",       effect = { clickBonus = 0.05 } },
+            { id = "oper_5", name = "极致效率",      cost = 3, desc = "产业费用 -5%",       effect = { costReduction = 0.05 } },
+        },
+    },
+    -- ========== 分支3: 运气算法 ==========
+    {
+        id = "luck",
+        name = "运气算法",
+        desc = "提升商机频率与奖励",
+        iconImage = "image/icon_market_predict.png",
+        tiers = {
+            { id = "luck_1", name = "概率偏移",      cost = 1, desc = "商机频率 +3%",       effect = { luckyFreqMul = 1.03 } },
+            { id = "luck_2", name = "奖励放大",      cost = 1, desc = "商机奖励 +5%",       effect = { luckyRewardMul = 1.05 } },
+            { id = "luck_3", name = "持续延长",      cost = 2, desc = "商机持续 +5%",       effect = { luckyDurMul = 1.05 } },
+            { id = "luck_4", name = "连锁反应",      cost = 2, desc = "商机频率 +5%",       effect = { luckyFreqMul = 1.05 } },
+            { id = "luck_5", name = "命运掌控",      cost = 3, desc = "商机奖励 +10%",      effect = { luckyRewardMul = 1.10 } },
+        },
+    },
+    -- ========== 分支4: 效率引擎 ==========
+    {
+        id = "efficiency",
+        name = "效率引擎",
+        desc = "提升顾问与人脉效率",
+        iconImage = "image/icon_global_opt.png",
+        tiers = {
+            { id = "eff_1", name = "顾问激励",       cost = 1, desc = "顾问效果 +3%",       effect = { kittenBonus = 0.03 } },
+            { id = "eff_2", name = "人脉拓展",       cost = 1, desc = "人脉成熟 +3%",       effect = { sugarBonus = 0.03 } },
+            { id = "eff_3", name = "团队协同",       cost = 2, desc = "顾问效果 +5%",       effect = { kittenBonus = 0.05 } },
+            { id = "eff_4", name = "资源整合",       cost = 2, desc = "人脉成熟 +5%",       effect = { sugarBonus = 0.05 } },
+            { id = "eff_5", name = "完美引擎",       cost = 3, desc = "总产量 ×1.15",       effect = { productionMul = 1.15 } },
+        },
+    },
+}
+
+--- 查找某天赋所在的分支和层级索引
+---@param talentId string
+---@return table|nil branch, number|nil tierIdx
+function DD.FindTalent(talentId)
+    for _, branch in ipairs(DD.TALENT_BRANCHES) do
+        for i, tier in ipairs(branch.tiers) do
+            if tier.id == talentId then
+                return branch, i
+            end
+        end
+    end
+    return nil, nil
+end
+
+-- ============================================================================
+-- 派遣任务系统
+-- ============================================================================
+
+--- 派遣任务解锁等级（Lv.5 起可派遣）
+DD.MISSION_UNLOCK_LEVEL = 5
+
+--- 同时进行的最大任务数
+DD.MISSION_MAX_ACTIVE = 1
+
+--- 任务刷新间隔（秒）—— 完成/放弃后多久刷新新任务
+DD.MISSION_REFRESH_CD = 300   -- 5 分钟
+
+--- 可用任务池（按等级段解锁，duration 单位: 秒）
+DD.MISSIONS = {
+    -- ===== 初级任务（Lv.5+）=====
+    {
+        id = "market_survey",
+        name = "市场调研",
+        desc = "让 K1 分析区域市场动态",
+        unlockLevel = 5,
+        duration = 1800,       -- 30 分钟
+        rewards = { xp = 50, coinMul = 0.5 },  -- coinMul: 奖励 = CPS * coinMul * duration
+        iconImage = "image/icon_market_research.png",
+    },
+    {
+        id = "data_cleaning",
+        name = "数据清洗",
+        desc = "整理历史交易数据",
+        unlockLevel = 5,
+        duration = 3600,       -- 1 小时
+        rewards = { xp = 120, coinMul = 0.8 },
+        iconImage = "image/icon_data_mining.png",
+    },
+    -- ===== 中级任务（Lv.8+）=====
+    {
+        id = "competitor_analysis",
+        name = "竞品分析",
+        desc = "深入研究竞争对手策略",
+        unlockLevel = 8,
+        duration = 7200,       -- 2 小时
+        rewards = { xp = 300, coinMul = 1.2 },
+        iconImage = "image/icon_trend_track.png",
+    },
+    {
+        id = "supply_chain_opt",
+        name = "供应链优化",
+        desc = "K1 优化全产业供应链路径",
+        unlockLevel = 10,
+        duration = 10800,      -- 3 小时
+        rewards = { xp = 500, coinMul = 1.5 },
+        iconImage = "image/icon_global_opt.png",
+    },
+    -- ===== 高级任务（Lv.14+）=====
+    {
+        id = "industry_report",
+        name = "行业白皮书",
+        desc = "撰写全行业深度报告",
+        unlockLevel = 14,
+        duration = 14400,      -- 4 小时
+        rewards = { xp = 800, coinMul = 2.0 },
+        iconImage = "image/icon_market_report.png",
+    },
+    {
+        id = "ai_model_training",
+        name = "模型迭代训练",
+        desc = "用最新数据重新训练 AI 模型",
+        unlockLevel = 16,
+        duration = 21600,      -- 6 小时
+        rewards = { xp = 1200, coinMul = 2.5 },
+        iconImage = "image/icon_ai_brain.png",
+    },
+    -- ===== 终极任务（Lv.20+）=====
+    {
+        id = "global_strategy",
+        name = "全球战略规划",
+        desc = "制定跨国市场扩张方案",
+        unlockLevel = 20,
+        duration = 28800,      -- 8 小时
+        rewards = { xp = 2000, coinMul = 3.0 },
+        iconImage = "image/icon_biz_instinct.png",
+    },
+    {
+        id = "quantum_forecast",
+        name = "量子预测推演",
+        desc = "运用量化模型预测未来趋势",
+        unlockLevel = 22,
+        duration = 43200,      -- 12 小时
+        rewards = { xp = 3500, coinMul = 4.0 },
+        iconImage = "image/icon_quant_storm.png",
+    },
+}
+
+--- 按 id 查找任务定义
+---@param missionId string
+---@return table|nil
+function DD.FindMission(missionId)
+    for _, m in ipairs(DD.MISSIONS) do
+        if m.id == missionId then return m end
+    end
+    return nil
+end
+
+--- 获取当前等级可用的任务列表
+---@param level number
+---@return table[]
+function DD.GetAvailableMissions(level)
+    local result = {}
+    for _, m in ipairs(DD.MISSIONS) do
+        if level >= m.unlockLevel then
+            result[#result + 1] = m
+        end
+    end
+    return result
+end
 
 return DD

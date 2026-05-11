@@ -38,6 +38,7 @@ local State = {
     activeBuffs = {},
     buffCpsMul = 1,
     buffCpcMul = 1,
+    buffLuckyFreqMul = 1,
     buffBuildingCostMul = 1,
 
     -- 幸运金币

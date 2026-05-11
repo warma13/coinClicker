@@ -1,7 +1,7 @@
 -- ============================================================================
 -- core/AdManager.lua
 -- 广告系统核心管理器
--- 统一入口、计数追踪、里程碑奖励、免广卡、连续天数
+-- 统一入口、计数追踪、里程碑奖励、特权卡
 -- ============================================================================
 
 local SaveBridge       = require("core.SaveBridge")
@@ -9,6 +9,7 @@ local SlotSaveSystem   = require("core.SlotSaveSystem")
 local GameState        = require("core.GameState")
 local InventoryManager = require("core.InventoryManager")
 local AdConfig         = require("config.AdConfig")
+local ItemDefs         = require("config.ItemDefs")
 
 ---@diagnostic disable-next-line: undefined-global
 local sdk = sdk  -- 引擎 C++ 注入的全局 SDK 对象
@@ -22,8 +23,9 @@ local todayCount_      = 0           -- 今日观看数
 local totalCount_      = 0           -- 累计观看数
 local dateStr_         = ""          -- 上次记录的日期 "YYYY-MM-DD"
 local claimed_         = {}          -- claimed_[milestoneIndex] = true
-local streak_          = 0           -- 连续有效天数
-local streakBonusHours_ = 1          -- 当前离线加速小时数
+local cardPoints_      = 0           -- 特权卡累积点数
+local cardPointToday_  = false       -- 今天是否已获得特权点
+local cardDailyGiven_  = false       -- 今天是否已发放每日道具福利
 
 --- 外部回调（面板刷新等）
 local onStateChanged_  = nil         -- function()
@@ -55,34 +57,16 @@ local function GetTodayStr()
     return os.date("%Y-%m-%d")
 end
 
---- 根据连续天数计算加速小时数
-local function CalcStreakBonus(streak)
-    for _, tier in ipairs(AdConfig.STREAK_TIERS) do
-        if streak >= tier.days then
-            return tier.hours
-        end
-    end
-    return AdConfig.STREAK_BASE_HOURS
-end
-
 --- 发放单个奖励
----@param reward table {type, cpsSec?, id?, n?}
+---@param reward table {type, id, n}
 ---@return string desc 奖励描述
 local function GrantReward(reward)
-    if reward.type == "coins" then
-        local cps = GameState.coinsPerSecond or 0
-        local mul = GameState.buffCpsMul or 1
-        local gain = cps * mul * reward.cpsSec
-        if gain > 0 then
-            GameState.coins = GameState.coins + gain
-            return "获得 " .. GameState.FormatNumber(gain) .. " 金币"
-        else
-            return "当前无产出"
-        end
-    elseif reward.type == "item" then
+    if reward.type == "item" then
         local ok = InventoryManager.AddItem(reward.id, reward.n or 1)
         if ok then
-            return "获得道具"
+            local def = ItemDefs.ITEM_MAP[reward.id]
+            local name = def and def.name or reward.id
+            return name .. " x" .. (reward.n or 1)
         else
             return "仓库已满"
         end
@@ -99,26 +83,17 @@ local function DayRollover()
     local today = GetTodayStr()
     if dateStr_ == today then return end -- 同一天，无需处理
 
-    if dateStr_ ~= "" then
-        -- 有上次日期记录，结算昨日
-        if todayCount_ >= AdConfig.DAILY_EFFECTIVE_MIN then
-            -- 昨天是有效天
-            streak_ = streak_ + 1
-        else
-            -- 昨天无效，衰减
-            streak_ = math.max(0, streak_ - AdConfig.STREAK_DECAY_PER_DAY)
-        end
-    end
-
-    -- 计算加速小时
-    streakBonusHours_ = CalcStreakBonus(streak_)
-
     -- 重置今日数据
     todayCount_ = 0
     claimed_ = {}
+    cardPointToday_ = false
+    cardDailyGiven_ = false
     dateStr_ = today
 
-    print("[AdManager] 跨天处理完成, streak=" .. streak_ .. ", bonus=" .. streakBonusHours_ .. "h")
+    -- 发放每日特权卡道具福利
+    AM._GrantDailyCardItems()
+
+    print("[AdManager] 跨天处理完成")
 end
 
 -- ============================================================================
@@ -126,7 +101,15 @@ end
 -- ============================================================================
 
 function AM.Init()
-    SaveBridge.Register("adTracker", AM.GetSaveData, AM.LoadSaveData)
+    SaveBridge.Register("adTracker", AM.GetSaveData, AM.LoadSaveData, function()
+        todayCount_ = 0
+        totalCount_ = 0
+        dateStr_ = os.date("%Y-%m-%d")
+        claimed_ = {}
+        cardPoints_ = 0
+        cardPointToday_ = false
+        cardDailyGiven_ = false
+    end)
     print("[AdManager] 初始化完成")
 end
 
@@ -145,19 +128,6 @@ function AM.ShowRewardAd(onSuccess, ctx)
     if todayCount_ >= AdConfig.DAILY_LIMIT then
         print("[AdManager] 今日广告次数已达上限 " .. AdConfig.DAILY_LIMIT)
         Toast("今日广告次数已用完", { 255, 180, 80, 255 })
-        return
-    end
-
-    -- 检查免广卡
-    if AM.IsAdFreeToday() then
-        local ok, err = pcall(function()
-            AM.Record()
-            if onSuccess then onSuccess() end
-        end)
-        if not ok then
-            print("[AdManager] 免广卡回调异常: " .. tostring(err))
-        end
-        Toast("免广卡生效，直接领取", { 100, 255, 100, 255 })
         return
     end
 
@@ -208,12 +178,15 @@ end
 function AM.Record()
     todayCount_ = todayCount_ + 1
     totalCount_ = totalCount_ + 1
-    SlotSaveSystem.MarkDirty()
 
-    -- 检查是否刚好激活免广卡
-    if todayCount_ == AdConfig.AD_FREE_THRESHOLD then
-        print("[AdManager] 免广卡已激活！今日剩余广告自动跳过")
+    -- 特权卡：今日看满上限获得 1 点
+    if not cardPointToday_ and todayCount_ >= AdConfig.DAILY_LIMIT then
+        cardPoints_ = cardPoints_ + 1
+        cardPointToday_ = true
+        print("[AdManager] 特权卡 +1 点, 总计=" .. cardPoints_)
     end
+
+    SlotSaveSystem.MarkDirty()
 
     if onStateChanged_ then
         local ok, err = pcall(onStateChanged_)
@@ -259,12 +232,6 @@ end
 -- 查询 API
 -- ============================================================================
 
---- 今天是否免广告
-function AM.IsAdFreeToday()
-    DayRollover()
-    return todayCount_ >= AdConfig.AD_FREE_THRESHOLD
-end
-
 --- 获取今日观看数
 function AM.GetTodayCount()
     return todayCount_
@@ -299,19 +266,99 @@ function AM.GetMilestones()
     return result
 end
 
---- 获取连续天数信息
-function AM.GetStreak()
-    return streak_, streakBonusHours_
-end
-
---- 获取免广卡阈值
-function AM.GetAdFreeThreshold()
-    return AdConfig.AD_FREE_THRESHOLD
-end
-
 --- 获取每日上限
 function AM.GetDailyLimit()
     return AdConfig.DAILY_LIMIT
+end
+
+-- ============================================================================
+-- 特权卡 API
+-- ============================================================================
+
+--- 获取特权卡点数
+function AM.GetCardPoints()
+    return cardPoints_
+end
+
+--- 获取特权卡当前等级信息
+---@return table levelDef 当前等级定义
+---@return number levelIdx 当前等级索引 (1-based)
+---@return table|nil nextDef 下一等级定义 (满级为nil)
+---@return boolean activated 是否已激活当前等级
+function AM.GetCardLevel()
+    local levels = AdConfig.PRIVILEGE_CARD.levels
+    -- 点数不够第一级时，返回第一级但标记未激活
+    if cardPoints_ < levels[1].points then
+        return levels[1], 1, levels[2], false
+    end
+    local curIdx = 1
+    for i = #levels, 1, -1 do
+        if cardPoints_ >= levels[i].points then
+            curIdx = i
+            break
+        end
+    end
+    local nextDef = levels[curIdx + 1] or nil
+    return levels[curIdx], curIdx, nextDef, true
+end
+
+--- 获取特权卡 CPS 加成（供 ProductionCalculator 调用）
+---@return number cpsMul 加成百分比, 如 0.15 = +15%
+function AM.GetCardCpsMul()
+    local levelDef, _, _, activated = AM.GetCardLevel()
+    if not activated then return 0 end
+    return levelDef.cpsMul or 0
+end
+
+--- 获取特权卡 CPC(点击收益) 加成（供 ProductionCalculator 调用）
+---@return number cpcMul 加成百分比, 如 0.08 = +8%
+function AM.GetCardCpcMul()
+    local levelDef, _, _, activated = AM.GetCardLevel()
+    if not activated then return 0 end
+    return levelDef.cpcMul or 0
+end
+
+--- 今天是否已获得特权点
+function AM.IsCardPointEarnedToday()
+    return cardPointToday_
+end
+
+--- 今天是否已发放每日道具福利
+function AM.IsCardDailyGiven()
+    return cardDailyGiven_
+end
+
+--- 获取当前等级的每日道具福利列表（读配置）
+---@return table|nil dailyItems
+function AM.GetCardDailyItems()
+    local levelDef = AM.GetCardLevel()
+    return levelDef.dailyItems
+end
+
+--- (内部) 发放每日特权卡道具福利
+function AM._GrantDailyCardItems()
+    if cardDailyGiven_ then return end
+    local levelDef, _, _, activated = AM.GetCardLevel()
+    if not activated then return end  -- 未激活不发放
+    local items = levelDef.dailyItems
+    if not items or #items == 0 then return end
+
+    cardDailyGiven_ = true
+    local descs = {}
+    for _, reward in ipairs(items) do
+        local ok = InventoryManager.AddItem(reward.id, reward.n or 1)
+        if ok then
+            local def = ItemDefs.ITEM_MAP[reward.id]
+            local name = def and def.name or reward.id
+            descs[#descs + 1] = name .. " x" .. (reward.n or 1)
+        end
+    end
+    SlotSaveSystem.MarkDirty()
+
+    if #descs > 0 then
+        Toast("每日福利: " .. table.concat(descs, ", "), { 80, 220, 120, 255 })
+        print("[AdManager] 每日特权卡福利已发放: " .. table.concat(descs, ", "))
+    end
 end
 
 --- 获取今日剩余次数
@@ -322,6 +369,74 @@ end
 --- 设置状态变化回调
 function AM.SetOnStateChanged(fn)
     onStateChanged_ = fn
+end
+
+-- ============================================================================
+-- 调试 API（仅限 DebugPanel 使用）
+-- ============================================================================
+
+--- 调试：直接增加今日观看次数（不触发真实广告）
+---@param n number
+function AM.DebugAddCount(n)
+    for _ = 1, (n or 1) do
+        AM.Record()
+    end
+    print("[AdManager][Debug] +", n, " → todayCount=", todayCount_)
+end
+
+--- 调试：重置今日数据（次数归零、领取清空）
+function AM.DebugResetToday()
+    todayCount_ = 0
+    claimed_ = {}
+    SlotSaveSystem.MarkDirty()
+    if onStateChanged_ then pcall(onStateChanged_) end
+    print("[AdManager][Debug] 今日数据已重置")
+end
+
+--- 调试：领取所有可领取的里程碑
+---@return number claimedCount
+function AM.DebugClaimAll()
+    local count = 0
+    for i, ms in ipairs(AdConfig.MILESTONES) do
+        if not claimed_[i] and todayCount_ >= ms.count then
+            claimed_[i] = true
+            for _, reward in ipairs(ms.rewards) do
+                pcall(GrantReward, reward)
+            end
+            count = count + 1
+        end
+    end
+    SlotSaveSystem.MarkDirty()
+    if onStateChanged_ then pcall(onStateChanged_) end
+    print("[AdManager][Debug] 批量领取 " .. count .. " 个里程碑")
+    return count
+end
+
+--- 调试：增加特权卡点数
+---@param n number
+function AM.DebugAddCardPoints(n)
+    cardPoints_ = cardPoints_ + (n or 1)
+    SlotSaveSystem.MarkDirty()
+    if onStateChanged_ then pcall(onStateChanged_) end
+    print("[AdManager][Debug] 特权卡 +" .. (n or 1) .. " → 总计=" .. cardPoints_)
+end
+
+--- 调试：手动发放每日道具福利
+function AM.DebugGrantDailyItems()
+    cardDailyGiven_ = false  -- 重置标记，允许重新发放
+    AM._GrantDailyCardItems()
+    if onStateChanged_ then pcall(onStateChanged_) end
+    print("[AdManager][Debug] 每日福利已手动发放")
+end
+
+--- 调试：重置特权卡（点数清零、福利重置）
+function AM.DebugResetCard()
+    cardPoints_ = 0
+    cardPointToday_ = false
+    cardDailyGiven_ = false
+    SlotSaveSystem.MarkDirty()
+    if onStateChanged_ then pcall(onStateChanged_) end
+    print("[AdManager][Debug] 特权卡已重置")
 end
 
 -- ============================================================================
@@ -338,8 +453,9 @@ function AM.GetSaveData()
         ac  = totalCount_,
         dt  = dateStr_,
         cl  = claimedList,
-        sk  = streak_,
-        sbh = streakBonusHours_,
+        cp  = cardPoints_,
+        cpt = cardPointToday_,
+        cdg = cardDailyGiven_,
     }
 end
 
@@ -348,8 +464,9 @@ function AM.LoadSaveData(data)
     totalCount_       = 0
     dateStr_          = ""
     claimed_          = {}
-    streak_           = 0
-    streakBonusHours_ = AdConfig.STREAK_BASE_HOURS
+    cardPoints_       = 0
+    cardPointToday_   = false
+    cardDailyGiven_   = false
 
     if not data then
         dateStr_ = GetTodayStr()
@@ -359,8 +476,9 @@ function AM.LoadSaveData(data)
     todayCount_       = data.tc or 0
     totalCount_       = data.ac or 0
     dateStr_          = data.dt or ""
-    streak_           = data.sk or 0
-    streakBonusHours_ = data.sbh or AdConfig.STREAK_BASE_HOURS
+    cardPoints_       = data.cp or 0
+    cardPointToday_   = data.cpt or false
+    cardDailyGiven_   = data.cdg or false
 
     if data.cl then
         for _, idx in ipairs(data.cl) do
@@ -370,6 +488,9 @@ function AM.LoadSaveData(data)
 
     -- 加载后立即检查跨天
     DayRollover()
+
+    -- 如果今天还没发过每日道具，补发（首次登录 / 升级后首次加载）
+    AM._GrantDailyCardItems()
 end
 
 return AM

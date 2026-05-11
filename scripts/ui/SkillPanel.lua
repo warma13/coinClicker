@@ -25,6 +25,7 @@ local initialized_ = false
 local BuildPanel
 local BuildSkillRow
 local FormatParams
+local UpdateSkillRow
 
 -- ============================================================================
 -- 初始化
@@ -107,19 +108,37 @@ function SP.Refresh()
         return
     end
 
-    -- 增量更新：指纹变化时全量重建（升级按钮状态较多，增量成本高）
-    for _, s in ipairs(statusList) do
+    -- 增量更新：逐行检查指纹，状态类别变化时替换单行，否则原地更新
+    for idx, s in ipairs(statusList) do
         local cache = rowCache_[s.def.id]
-        if cache then
+        if not cache then
+            -- 缓存丢失，追加新行
+            listContainer_:AddChild(BuildSkillRow(s))
+        else
             local state = s.maxed and "M" or (s.locked and "L" or "U")
             local fp = state .. ":L" .. s.info.level
                      .. ":A" .. tostring(s.active)
                      .. ":B" .. tostring(s.adBusy)
                      .. ":C" .. tostring(s.info.canAfford)
             if fp ~= cache.lastFP then
-                initialized_ = false
-                SP.Refresh()
-                return
+                if state ~= cache.lastState then
+                    -- 状态类别变化（锁定↔解锁↔满级）：需要替换整行（按钮结构不同）
+                    -- 找到旧行索引，移除后在同位置插入新行
+                    local oldIdx = nil
+                    for ci, c in ipairs(listContainer_.children) do
+                        if c == cache.row then oldIdx = ci; break end
+                    end
+                    listContainer_:RemoveChild(cache.row)
+                    local newRow = BuildSkillRow(s)
+                    if oldIdx then
+                        listContainer_:InsertChild(newRow, oldIdx)
+                    else
+                        listContainer_:AddChild(newRow)
+                    end
+                else
+                    -- 同类别内变化（等级/费用/激活/afford）：原地更新文本和样式
+                    UpdateSkillRow(s)
+                end
             end
         end
     end
@@ -216,14 +235,11 @@ BuildSkillRow = function(status)
     if not status.locked and info.params then
         descText = FormatParams(def, info.params)
     end
-    -- 已解锁技能的激活提示
-    local activateHintText = nil
-    if not status.locked then
-        activateHintText = "点击底栏图标看广告获取时间"
-    end
+    -- (已移除激活提示文字)
 
     -- 状态按钮
     local statusWidget
+    local costLabel, btnLabel   -- 仅 unlocked 状态赋值，其他状态为 nil
     local skillId = def.id
 
     if status.maxed then
@@ -245,6 +261,10 @@ BuildSkillRow = function(status)
         local canAfford = status.info.canAfford
         local clickable = not status.active and canAfford
         local costText = GameState.FormatNumber(cost)
+        btnLabel = UI.Label { text = "升级", fontSize = 12,
+            fontColor = { 255, 255, 255, clickable and 240 or 120 } }
+        costLabel = UI.Label { text = costText, fontSize = 9,
+            fontColor = canAfford and { 255, 220, 80, 200 } or { 255, 100, 100, 180 } }
         statusWidget = UI.Panel {
             flexDirection = "column", alignItems = "center", justifyContent = "center",
             paddingLeft = 6, paddingRight = 6, paddingTop = 3, paddingBottom = 3,
@@ -258,12 +278,7 @@ BuildSkillRow = function(status)
                     manager_.OnUpgradeSkill(skillId)
                 end
             end or nil,
-            children = {
-                UI.Label { text = "升级", fontSize = 12,
-                    fontColor = { 255, 255, 255, clickable and 240 or 120 } },
-                UI.Label { text = costText, fontSize = 9,
-                    fontColor = canAfford and { 255, 220, 80, 200 } or { 255, 100, 100, 180 } },
-            },
+            children = { btnLabel, costLabel },
         }
     else
         -- 未解锁 → 解锁按钮
@@ -287,6 +302,10 @@ BuildSkillRow = function(status)
         }
     end
 
+    -- 描述标签（缓存引用以支持增量更新）
+    local descLabel = UI.Label { text = descText, fontSize = 10,
+        fontColor = { 150, 140, 170, 200 } }
+
     local row = UI.Panel {
         width = "100%", flexDirection = "row", alignItems = "center",
         padding = 10, gap = 8, borderRadius = 8, borderWidth = 1,
@@ -302,12 +321,7 @@ BuildSkillRow = function(status)
             -- 名称 + 描述 + 体力消耗
             UI.Panel { flex = 1, flexShrink = 1, gap = 2, children = {
                 nameLabel,
-                UI.Label { text = descText, fontSize = 10,
-                    fontColor = { 150, 140, 170, 200 } },
-                activateHintText and UI.Label {
-                    text = activateHintText, fontSize = 10,
-                    fontColor = { 140, 180, 220, 200 },
-                } or nil,
+                descLabel,
             }},
             -- 右侧按钮
             statusWidget,
@@ -320,9 +334,14 @@ BuildSkillRow = function(status)
              .. ":B" .. tostring(status.adBusy)
              .. ":C" .. tostring(info.canAfford)
 
+    -- costLabel / btnLabel 仅在 unlocked 状态下存在（局部变量自然为 nil 对其他状态）
     rowCache_[def.id] = {
         row = row,
         nameLabel = nameLabel,
+        descLabel = descLabel,
+        costLabel = costLabel or nil,
+        btnLabel = btnLabel or nil,
+        statusBtn = statusWidget,
         lastFP = fp,
         lastState = state,
     }
@@ -334,7 +353,8 @@ end
 -- 内部：增量更新行
 -- ============================================================================
 
-local function UpdateSkillRow(status)
+---@diagnostic disable-next-line: redefined-local
+UpdateSkillRow = function(status)
     local def = status.def
     local info = status.info
     local cache = rowCache_[def.id]
@@ -369,6 +389,47 @@ local function UpdateSkillRow(status)
         or { 100, 95, 120, 200 })
     )
 
+    -- 更新描述
+    if cache.descLabel then
+        local descText = def.desc
+        if not status.locked and info.params then
+            descText = FormatParams(def, info.params)
+        end
+        cache.descLabel:SetText(descText)
+    end
+
+    -- 更新费用和按钮（仅 unlocked 状态）
+    if not status.locked and not status.maxed then
+        local canAfford = info.canAfford
+        local clickable = not status.active and canAfford
+
+        if cache.costLabel then
+            local costText = GameState.FormatNumber(info.upgradeCost or 0)
+            cache.costLabel:SetText(costText)
+            cache.costLabel:SetFontColor(
+                canAfford and { 255, 220, 80, 200 } or { 255, 100, 100, 180 }
+            )
+        end
+        if cache.btnLabel then
+            cache.btnLabel:SetFontColor(
+                { 255, 255, 255, clickable and 240 or 120 }
+            )
+        end
+        if cache.statusBtn then
+            local skillId = def.id
+            cache.statusBtn:SetStyle({
+                backgroundColor = clickable and { 80, 50, 120, 255 } or { 50, 45, 60, 200 },
+                borderColor = clickable and { 180, 130, 255, 200 } or { 70, 60, 90, 120 },
+                pointerEvents = clickable and "auto" or "none",
+                onPointerDown = clickable and function()
+                    if manager_ then
+                        manager_.OnUpgradeSkill(skillId)
+                    end
+                end or nil,
+            })
+        end
+    end
+
     local state = status.maxed and "M" or (status.locked and "L" or "U")
     cache.lastFP = state .. ":L" .. info.level
                  .. ":A" .. tostring(status.active)
@@ -390,6 +451,13 @@ FormatParams = function(def, params)
     elseif id == "cpsDouble" then
         local mins = math.floor(params.duration / 60)
         return string.format("持续 %d分钟 · CPS ×%.1f", mins, params.multiplier)
+    elseif id == "clickBoost" then
+        local mins = math.floor(params.duration / 60)
+        return string.format("持续 %d分钟 · 签单收益 ×%.1f", mins, params.multiplier)
+    elseif id == "randomBuildings" then
+        return string.format("随机获得 %d 个已解锁产业各+1", params.count)
+    elseif id == "cpsHarvest" then
+        return string.format("立即获取 %d 分钟CPS收益", params.minutes)
     end
     return def.desc
 end

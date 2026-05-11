@@ -247,7 +247,20 @@ function FM.Init()
     totalGathered_ = 0
     FillOrders()
 
-    SaveBridge.Register("factory", FM.GetSaveData, FM.LoadSaveData)
+    SaveBridge.Register("factory", FM.GetSaveData, FM.LoadSaveData, function()
+        factoryLevel_ = 0
+        factoryXP_ = 0
+        inventory_ = {}
+        craftQueue_ = {}
+        orders_ = {}
+        orderRefreshTimer_ = FC.ORDER_AUTO_FILL_INTERVAL
+        gatherCount_ = 0
+        gatherTimer_ = 0
+        streak_ = 0
+        totalDelivered_ = 0
+        totalGathered_ = 0
+        FillOrders()
+    end)
 end
 
 -- ============================================================================

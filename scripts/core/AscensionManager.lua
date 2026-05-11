@@ -53,7 +53,15 @@ function AM.Init()
     ascensionCount_ = 0
     boughtUpgrades_ = {}
 
-    SaveBridge.Register("progression", AM.GetSaveData, AM.LoadSaveData)
+    SaveBridge.Register("progression", AM.GetSaveData, AM.LoadSaveData, function()
+        heavenlyChips_ = 0
+        spentChips_ = 0
+        prestigeLevel_ = 0
+        totalBakedAllTime_ = 0
+        bakedThisAscension_ = 0
+        ascensionCount_ = 0
+        boughtUpgrades_ = {}
+    end)
 end
 
 -- ============================================================================

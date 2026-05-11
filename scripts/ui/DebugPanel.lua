@@ -18,6 +18,11 @@ local SugarLumpManager = require("core.SugarLumpManager")
 local InventoryManager = require("core.InventoryManager")
 local ItemDefs = require("config.ItemDefs")
 local SD = require("config.SugarLumpDefs")
+local DragonManager = require("core.DragonManager")
+local AntiCheatManager = require("core.AntiCheatManager")
+local AdManager = require("core.AdManager")
+local SkillManager = require("core.SkillManager")
+local SkillDefs = require("config.SkillDefs")
 
 -- 面板引用（延迟设置，用于重置后刷新）
 local panelRefs_ = {}
@@ -533,6 +538,293 @@ function DP.OpenModal()
                                     ecomSection,
                                     sugarSection,
                                     inventorySection,
+
+                                    -- 10) 技能系统
+                                    (function()
+                                        local S = GameState
+                                        local staminaText = "体力: " .. math.floor(S.stamina) .. "/" .. S.staminaMax
+                                            .. "  恢复: " .. string.format("%.2f", S.staminaRegenRate) .. "/s"
+                                        -- 构建每个技能的状态行和按钮
+                                        local skillChildren = {
+                                            SectionTitle("技能系统"),
+                                            InfoLabel(staminaText),
+                                            BtnRow({
+                                                MakeBtn("体力+100", { 100, 200, 255 }, function()
+                                                    S.stamina = math.min(S.staminaMax, S.stamina + 100)
+                                                    DP.CloseModal(); DP.OpenModal()
+                                                end),
+                                                MakeBtn("体力满", { 100, 200, 255 }, function()
+                                                    S.stamina = S.staminaMax
+                                                    DP.CloseModal(); DP.OpenModal()
+                                                end),
+                                                MakeBtn("体力清零", { 220, 80, 80 }, function()
+                                                    S.stamina = 0
+                                                    DP.CloseModal(); DP.OpenModal()
+                                                end),
+                                            }),
+                                        }
+                                        for _, def in ipairs(SkillDefs.list) do
+                                            local info = SkillManager.GetSkillInfo(def.id)
+                                            if info then
+                                                local statusParts = {}
+                                                statusParts[#statusParts + 1] = def.name
+                                                statusParts[#statusParts + 1] = " Lv." .. info.level .. "/" .. info.maxLevel
+                                                if info.active then
+                                                    statusParts[#statusParts + 1] = "  [激活中 " .. string.format("%.0f", info.timer) .. "s]"
+                                                end
+                                                local staCost = SkillDefs.GetStaminaCost(def, info.level)
+                                                statusParts[#statusParts + 1] = "  体力:" .. staCost
+                                                skillChildren[#skillChildren + 1] = InfoLabel(table.concat(statusParts))
+                                                -- 按钮行
+                                                local btns = {}
+                                                if not def.instant then
+                                                    btns[#btns + 1] = MakeBtn("激活30m", { 120, 220, 80 }, function()
+                                                        SkillManager.AddSkillTime(def.id, 1800)
+                                                        DP.CloseModal(); DP.OpenModal()
+                                                    end)
+                                                    btns[#btns + 1] = MakeBtn("+5m", { 100, 200, 255 }, function()
+                                                        SkillManager.AddSkillTime(def.id, 300)
+                                                        DP.CloseModal(); DP.OpenModal()
+                                                    end)
+                                                    if info.active then
+                                                        btns[#btns + 1] = MakeBtn("停止", { 220, 160, 80 }, function()
+                                                            local st = S.skills[def.id]
+                                                            if st then st.active = false; st.timer = 0 end
+                                                            DP.CloseModal(); DP.OpenModal()
+                                                        end)
+                                                    end
+                                                else
+                                                    btns[#btns + 1] = MakeBtn("触发", { 120, 220, 80 }, function()
+                                                        if def.id == "randomBuildings" then
+                                                            local r = SkillManager.ExecuteRandomBuildings(info.level)
+                                                            local names = {}
+                                                            for _, b in ipairs(r.buildings) do names[#names + 1] = b.name end
+                                                            print("[Debug] 随机扩张: " .. table.concat(names, ", "))
+                                                        elseif def.id == "cpsHarvest" then
+                                                            local r = SkillManager.ExecuteCpsHarvest(info.level)
+                                                            print("[Debug] 立即收割: " .. GameState.FormatNumber(r.coins))
+                                                        end
+                                                        DP.CloseModal(); DP.OpenModal()
+                                                    end)
+                                                end
+                                                if info.level < info.maxLevel then
+                                                    btns[#btns + 1] = MakeBtn("升级", { 200, 180, 100 }, function()
+                                                        SkillManager.UpgradeSkill(def.id)
+                                                        DP.CloseModal(); DP.OpenModal()
+                                                    end)
+                                                end
+                                                btns[#btns + 1] = MakeBtn("满级", { 200, 160, 255 }, function()
+                                                    local st = S.skills[def.id]
+                                                    if st then st.level = def.maxLevel end
+                                                    DP.CloseModal(); DP.OpenModal()
+                                                end)
+                                                skillChildren[#skillChildren + 1] = BtnRow(btns)
+                                            end
+                                        end
+                                        -- 全局操作
+                                        skillChildren[#skillChildren + 1] = BtnRow({
+                                            MakeBtn("全部激活30m", { 120, 220, 80 }, function()
+                                                for _, d in ipairs(SkillDefs.list) do
+                                                    if not d.instant then
+                                                        SkillManager.AddSkillTime(d.id, 1800)
+                                                    end
+                                                end
+                                                DP.CloseModal(); DP.OpenModal()
+                                            end),
+                                            MakeBtn("全部停止", { 220, 160, 80 }, function()
+                                                for _, d in ipairs(SkillDefs.list) do
+                                                    local st = S.skills[d.id]
+                                                    if st then st.active = false; st.timer = 0 end
+                                                end
+                                                DP.CloseModal(); DP.OpenModal()
+                                            end),
+                                            MakeBtn("全部满级", { 200, 160, 255 }, function()
+                                                for _, d in ipairs(SkillDefs.list) do
+                                                    local st = S.skills[d.id]
+                                                    if st then st.level = d.maxLevel end
+                                                end
+                                                DP.CloseModal(); DP.OpenModal()
+                                            end),
+                                            MakeBtn("重置等级", { 220, 80, 80 }, function()
+                                                for _, d in ipairs(SkillDefs.list) do
+                                                    local st = S.skills[d.id]
+                                                    if st then st.level = 1; st.active = false; st.timer = 0 end
+                                                end
+                                                DP.CloseModal(); DP.OpenModal()
+                                            end),
+                                        })
+                                        return UI.Panel {
+                                            width = "100%", flexDirection = "column", gap = 6,
+                                            children = skillChildren,
+                                        }
+                                    end)(),
+
+                                    -- 11) AI合伙人
+                                    (function()
+                                        local lv = DragonManager.GetLevel()
+                                        local xp = DragonManager.GetCurrentXP and DragonManager.GetCurrentXP() or 0
+                                        local tp = DragonManager.GetTalentPoints and DragonManager.GetTalentPoints() or 0
+                                        local used = DragonManager.GetUsedTalentPoints and DragonManager.GetUsedTalentPoints() or 0
+                                        return UI.Panel {
+                                            width = "100%", flexDirection = "column", gap = 6,
+                                            children = {
+                                                SectionTitle("AI合伙人"),
+                                                InfoLabel("等级: " .. lv .. "  XP: " .. math.floor(xp)
+                                                    .. "  天赋点: " .. tp .. " (已用" .. used .. ")"),
+                                                BtnRow({
+                                                    MakeBtn("+1000 XP", { 100, 200, 255 }, function()
+                                                        if DragonManager.AddXP then
+                                                            DragonManager.AddXP(1000)
+                                                        end
+                                                    end),
+                                                    MakeBtn("+10000 XP", { 100, 200, 255 }, function()
+                                                        if DragonManager.AddXP then
+                                                            DragonManager.AddXP(10000)
+                                                        end
+                                                    end),
+                                                    MakeBtn("重置AI", { 220, 80, 80 }, function()
+                                                        DragonManager.Init()
+                                                        print("[Debug] AI合伙人已重置")
+                                                    end),
+                                                }),
+                                            },
+                                        }
+                                    end)(),
+
+                                    -- 12) 反作弊
+                                    (function()
+                                        local inited = AntiCheatManager.IsInitialized()
+                                        local level  = AntiCheatManager.GetCheatLevel()
+                                        local slotId = SlotSaveSystem.GetSlotId()
+                                        local statusText  = "未初始化"
+                                        local statusColor = { 160, 160, 160, 200 }
+                                        if inited then
+                                            if level == 1 then
+                                                statusText  = "已警告一次"
+                                                statusColor = { 255, 200, 60, 255 }
+                                            else
+                                                statusText  = "正常"
+                                                statusColor = { 100, 255, 100, 255 }
+                                            end
+                                        end
+                                        return UI.Panel {
+                                            width = "100%", flexDirection = "column", gap = 6,
+                                            children = {
+                                                SectionTitle("反作弊"),
+                                                InfoLabel("槽位: " .. slotId .. "  |  等级: " .. level .. " (0=正常 1=已警告)"),
+                                                UI.Label {
+                                                    text = statusText,
+                                                    fontSize = 10,
+                                                    fontColor = statusColor,
+                                                    fontWeight = "bold",
+                                                },
+                                                BtnRow({
+                                                    MakeBtn("模拟作弊", { 255, 160, 60 }, function()
+                                                        AntiCheatManager.DebugTrigger()
+                                                        print("[Debug] 模拟触发作弊检测")
+                                                    end),
+                                                    MakeBtn("重置正常", { 100, 220, 100 }, function()
+                                                        AntiCheatManager.DebugReset()
+                                                        print("[Debug] 反作弊状态已重置")
+                                                    end),
+                                                }),
+                                            },
+                                        }
+                                    end)(),
+
+                                    -- 13) 广告系统
+                                    (function()
+                                        local todayCount = AdManager.GetTodayCount()
+                                        local totalCount = AdManager.GetTotalCount()
+                                        local remaining  = AdManager.GetRemainingToday()
+                                        local cardLv, cardIdx, cardNext, cardActive = AdManager.GetCardLevel()
+                                        local cardPts = AdManager.GetCardPoints()
+                                        local dailyGiven = AdManager.IsCardDailyGiven()
+                                        local earnedToday = AdManager.IsCardPointEarnedToday()
+                                        local activeTxt = cardActive and "" or "[未激活] "
+                                        local cpcTxt = (cardLv.cpcMul and cardLv.cpcMul > 0) and (" 点击+" .. math.floor(cardLv.cpcMul * 100) .. "%") or ""
+                                        local statusText = "剩余 " .. remaining .. " 次  特权卡: " .. activeTxt .. cardLv.name .. "(Lv" .. cardIdx .. " CPS+" .. math.floor(cardLv.cpsMul * 100) .. "%" .. cpcTxt .. ")"
+                                        local cardInfo = "点数: " .. cardPts
+                                            .. (not cardActive and ("/" .. cardLv.points .. " → 激活" .. cardLv.name)
+                                               or cardNext and ("/" .. cardNext.points .. " → " .. cardNext.name) or " (满级)")
+                                            .. "  今日点: " .. (earnedToday and "已得" or "未得")
+                                            .. "  福利: " .. (dailyGiven and "已发" or "未发")
+                                        return UI.Panel {
+                                            width = "100%", flexDirection = "column", gap = 6,
+                                            children = {
+                                                SectionTitle("广告系统"),
+                                                InfoLabel("今日: " .. todayCount .. "  累计: " .. totalCount),
+                                                InfoLabel(statusText),
+                                                BtnRow({
+                                                    MakeBtn("+1次", { 100, 200, 255 }, function()
+                                                        AdManager.DebugAddCount(1)
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                    MakeBtn("+5次", { 100, 200, 255 }, function()
+                                                        AdManager.DebugAddCount(5)
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                    MakeBtn("+20次", { 100, 200, 255 }, function()
+                                                        AdManager.DebugAddCount(20)
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                }),
+                                                BtnRow({
+                                                    MakeBtn("领取全部", { 120, 220, 80 }, function()
+                                                        local n = AdManager.DebugClaimAll()
+                                                        print("[Debug] 领取了 " .. n .. " 个里程碑")
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                    MakeBtn("重置今日", { 220, 80, 80 }, function()
+                                                        AdManager.DebugResetToday()
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                }),
+                                                Divider(),
+                                                SectionTitle("特权卡"),
+                                                InfoLabel(cardInfo),
+                                                BtnRow({
+                                                    MakeBtn("+1点", { 200, 160, 255 }, function()
+                                                        AdManager.DebugAddCardPoints(1)
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                    MakeBtn("+5点", { 200, 160, 255 }, function()
+                                                        AdManager.DebugAddCardPoints(5)
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                    MakeBtn("+20点", { 200, 160, 255 }, function()
+                                                        AdManager.DebugAddCardPoints(20)
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                    MakeBtn("+50点", { 200, 160, 255 }, function()
+                                                        AdManager.DebugAddCardPoints(50)
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                }),
+                                                BtnRow({
+                                                    MakeBtn("发每日福利", { 120, 220, 80 }, function()
+                                                        AdManager.DebugGrantDailyItems()
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                    MakeBtn("重置特权卡", { 220, 80, 80 }, function()
+                                                        AdManager.DebugResetCard()
+                                                        DP.CloseModal()
+                                                        DP.OpenModal()
+                                                    end),
+                                                }),
+                                            },
+                                        }
+                                    end)(),
 
                                     Divider(),
 

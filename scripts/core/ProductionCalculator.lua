@@ -18,8 +18,10 @@ local PantheonManager    = require("core.PantheonManager")
 local GrimoireManager    = require("core.GrimoireManager")
 local StockMarketManager = require("core.StockMarketManager")
 local AchievementManager = require("core.AchievementManager")
+local AdManager          = require("core.AdManager")
 local SkillManager       = require("core.SkillManager")
 local InventoryManager   = require("core.InventoryManager")
+local OnlineRewardManager = require("core.OnlineRewardManager")
 
 local M = {}
 
@@ -157,6 +159,18 @@ function M.Recalculate(buildingUpgrades)
         S.luckyDurMul = S.luckyDurMul * (1 + colBonus.lucky_dur)
     end
 
+    -- 广告特权卡
+    local cardCpsMul = AdManager.GetCardCpsMul()
+    if cardCpsMul > 0 then
+        pool:AddRaw(cardCpsMul)                                -- 特权卡 CPS%
+    end
+
+    -- 在线奖励 CPS 加成
+    local onlineCpsPct = OnlineRewardManager.GetCpsBonusPct()
+    if onlineCpsPct > 0 then
+        pool:AddRaw(onlineCpsPct)                              -- 在线奖励 CPS%
+    end
+
     -- ---- 乘算层（独立机制，保持乘法） ----
     pool:Mul(DragonManager.GetProductionMul())              -- 产量 ×2
 
@@ -206,6 +220,18 @@ function M.Recalculate(buildingUpgrades)
     -- 研发实验室 CPC 乘数
     if GrimoireManager.IsUnlocked() then
         S.coinsPerClick = S.coinsPerClick * GrimoireManager.GetCPCMultiplier()
+    end
+
+    -- 广告特权卡 CPC 加成
+    local cardCpcMul = AdManager.GetCardCpcMul()
+    if cardCpcMul > 0 then
+        S.coinsPerClick = S.coinsPerClick * (1 + cardCpcMul)
+    end
+
+    -- 在线奖励 CPC 加成
+    local onlineCpcPct = OnlineRewardManager.GetCpcBonusPct()
+    if onlineCpcPct > 0 then
+        S.coinsPerClick = S.coinsPerClick * (1 + onlineCpcPct)
     end
 end
 

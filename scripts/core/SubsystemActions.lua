@@ -23,6 +23,7 @@ local ECommerceConfig    = require("config.ECommerceConfig")
 local SkillManager       = require("core.SkillManager")
 local InventoryManager   = require("core.InventoryManager")
 local AdManager          = require("core.AdManager")
+local OnlineRewardManager = require("core.OnlineRewardManager")
 local AudioManager       = require("core.AudioManager")
 local SlotSaveSystem     = require("core.SlotSaveSystem")
 local GameState          = require("core.GameState")
@@ -125,6 +126,9 @@ function M.Setup(GM, ctx)
             GM.RefreshAllUI()
             SlotSaveSystem.MarkDirty()
             AudioManager.PlayBtnClick()
+            if ctx.ui.buildingLevelPanel and ctx.ui.buildingLevelPanel.IsVisible() then
+                ctx.ui.buildingLevelPanel.Refresh()
+            end
         end
     end
 
@@ -723,7 +727,7 @@ function M.InitCallbacks(GM, ctx)
             local dpr = graphics:GetDPR()
             local cx = (graphics:GetWidth() / dpr - 310) / 2
             local cy = graphics:GetHeight() / dpr / 2 - 60
-            local text = "龙 Lv." .. newLevel
+            local text = "K1 Lv." .. newLevel
             if auraUnlocked then
                 text = text .. " " .. auraUnlocked.name
             end
@@ -1045,6 +1049,9 @@ function M.InitCallbacks(GM, ctx)
     -- 初始化广告福利系统
     AdManager.Init()
 
+    -- 初始化在线奖励系统
+    OnlineRewardManager.Init()
+
     -- 初始化技能系统
     SkillManager.Init(function(x, y, skipRateLimit)
         -- 技能触发的点击（跳过频率限制）
@@ -1053,7 +1060,7 @@ function M.InitCallbacks(GM, ctx)
         if skipRateLimit then
             local S = GameState
             S.totalClicks = S.totalClicks + 1
-            local gain = S.coinsPerClick * S.buffCpcMul
+            local gain = S.coinsPerClick * S.buffCpcMul * SkillManager.GetClickMultiplier()
             S.coins = S.coins + gain
             S.handmadeCoins = S.handmadeCoins + gain
         else

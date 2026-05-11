@@ -27,6 +27,7 @@ local FactoryManager = require("core.FactoryManager")
 local ShipmentManager = require("core.ShipmentManager")
 local ECommerceManager = require("core.ECommerceManager")
 local SkillManager = require("core.SkillManager")
+local OnlineRewardManager = require("core.OnlineRewardManager")
 -- 拆分出的子模块
 local ProductionCalculator = require("core.ProductionCalculator")
 local LuckyCoinSystem = require("core.LuckyCoinSystem")
@@ -151,9 +152,10 @@ function GM.SetUI(refs)
     -- 缓存高频访问的 UI 引用（避免每帧 FindById）
     achieveCountLabel_ = refs.uiRoot and refs.uiRoot:FindById("achieveCountLabel") or nil
 
-    -- 注入 FloatingText 到 AdManager（SetUI 时已可用）
+    -- 注入 FloatingText 到 AdManager / OnlineRewardManager（SetUI 时已可用）
     local AdManager = require("core.AdManager")
     AdManager.SetFloatingText(refs.floatingText)
+    OnlineRewardManager.SetFloatingText(refs.floatingText)
 end
 
 -- ============================================================================
@@ -163,6 +165,18 @@ end
 --- 重新计算每秒/每次点击产出
 function GM.RecalcProduction()
     ProductionCalculator.Recalculate(GM.buildingUpgrades)
+end
+
+--- 在屏幕中央显示浮动提示文字
+---@param text string
+---@param color? table {r,g,b,a}
+---@param icon? string
+function GM.ShowFloatingText(text, color, icon)
+    if not ui_.floatingText then return end
+    local dpr = graphics:GetDPR()
+    local cx = (graphics:GetWidth() / dpr - 310) / 2
+    local cy = graphics:GetHeight() / dpr / 2 - 50
+    ui_.floatingText.Show(text, cx, cy, color or { 255, 220, 80, 255 }, icon)
 end
 
 -- ============================================================================
@@ -502,6 +516,9 @@ function GM.Update(dt)
             ui_.skillPanel.Refresh()
         end
     end
+
+    -- ========== 在线奖励计时 ==========
+    OnlineRewardManager.Update(dt)
 
     -- ========== 成就检查 ==========
     AchievementManager.Update(dt, GM.buildingUpgrades)

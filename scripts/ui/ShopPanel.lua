@@ -110,18 +110,10 @@ local function CreateBuildingItem(item, idPrefix, onBuy, buildingIndex)
         backgroundColor = canAfford and COLOR_AFFORD_BG or COLOR_UNAFFORD_BG,
         borderColor = canAfford and COLOR_AFFORD_BORDER or COLOR_UNAFFORD_BORDER,
         pointerEvents = "auto",
-        -- 长按显示浮窗
-        onLongPressStart = function(event)
-            Tooltip.Show(tooltipFn, event.y)
+        -- 点击切换浮窗（不干扰滚动）
+        onTap = function(event)
+            Tooltip.Toggle("bld_" .. buildingIndex, tooltipFn, event.y)
         end,
-        onLongPressEnd = function()
-            Tooltip.Hide()
-        end,
-        -- hover 显示浮窗（PC 端）
-        onPointerEnter = function(event)
-            Tooltip.Show(tooltipFn, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
         children = {
             UI.Panel {
                 width = 36, height = 36,
@@ -231,85 +223,32 @@ local function CreateBuildingUpgradeIcon(u, onBuy)
         borderColor = borderColor,
         opacity = opacity,
         pointerEvents = "auto",
-        onTap = (not bought) and function(event, widget)
-            onBuy(widget)
-        end or nil,
-        onLongPressStart = function(event)
-            Tooltip.Show(function()
-                local F = GameState.FormatNumber
-                local mulNow = 1
-                if buildingUpgrades_ and buildingUpgrades_[u.buildingIndex] then
-                    mulNow = BuildingUpgrades.GetMultiplier(buildingUpgrades_[u.buildingIndex])
+        onTap = function(event, widget)
+            if not bought then
+                onBuy(widget)
+            else
+                -- 已购买的图标点击显示 tooltip
+                local tooltipFn = function()
+                    local mulNow = 1
+                    if buildingUpgrades_ and buildingUpgrades_[u.buildingIndex] then
+                        mulNow = BuildingUpgrades.GetMultiplier(buildingUpgrades_[u.buildingIndex])
+                    end
+                    local isCursor = (u.buildingIndex == 1)
+                    local descText = isCursor
+                        and "使 " .. u.buildingName .. " 效率和点击力量同时翻倍（x2）"
+                        or  "使 " .. u.buildingName .. " 效率翻倍（x2）"
+                    return {
+                        iconImage = u.buildingIconImage,
+                        title = u.buildingName,
+                        desc = descText,
+                        extra = "当前效率倍率: x" .. mulNow .. "  |  需要: " .. u.needCount .. " 个",
+                        action = "已购买。",
+                        actionColor = "green",
+                    }
                 end
-                local statusText, statusColor
-                if bought then
-                    statusText = "已购买。"
-                    statusColor = "green"
-                elseif GameState.coins >= u.cost then
-                    statusText = "点击购买。"
-                    statusColor = "green"
-                else
-                    statusText = "金币不足。"
-                    statusColor = "red"
-                end
-                local isCursor = (u.buildingIndex == 1)
-                local descText
-                if isCursor then
-                    descText = "使 " .. u.buildingName .. " 效率和点击力量同时翻倍（x2）"
-                else
-                    descText = "使 " .. u.buildingName .. " 效率翻倍（x2）"
-                end
-                return {
-                    icon = u.buildingIcon,
-                    iconImage = u.buildingIconImage,
-                    title = u.buildingName,
-                    cost = (not bought) and u.cost or nil,
-                    desc = descText,
-                    extra = "当前效率倍率: x" .. mulNow .. "  |  需要: " .. u.needCount .. " 个",
-                    action = statusText,
-                    actionColor = statusColor,
-                }
-            end, event.y)
+                Tooltip.Toggle("bu_" .. u.buildingIndex .. "_" .. u.tierIndex, tooltipFn, event.y)
+            end
         end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(function()
-                local F = GameState.FormatNumber
-                local mulNow = 1
-                if buildingUpgrades_ and buildingUpgrades_[u.buildingIndex] then
-                    mulNow = BuildingUpgrades.GetMultiplier(buildingUpgrades_[u.buildingIndex])
-                end
-                local statusText, statusColor
-                if bought then
-                    statusText = "已购买。"
-                    statusColor = "green"
-                elseif GameState.coins >= u.cost then
-                    statusText = "点击购买。"
-                    statusColor = "green"
-                else
-                    statusText = "金币不足。"
-                    statusColor = "red"
-                end
-                local isCursor = (u.buildingIndex == 1)
-                local descText
-                if isCursor then
-                    descText = "使 " .. u.buildingName .. " 效率和点击力量同时翻倍（x2）"
-                else
-                    descText = "使 " .. u.buildingName .. " 效率翻倍（x2）"
-                end
-                return {
-                    icon = u.buildingIcon,
-                    iconImage = u.buildingIconImage,
-                    title = u.buildingName,
-                    cost = (not bought) and u.cost or nil,
-                    desc = descText,
-                    extra = "当前效率倍率: x" .. mulNow .. "  |  需要: " .. u.needCount .. " 个",
-                    action = statusText,
-                    actionColor = statusColor,
-                }
-            end, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
         children = {
             UI.Panel {
                 width = 22, height = 22,
@@ -354,56 +293,32 @@ local function CreateClickUpgradeIcon(u, index, onBuy)
         opacity = opacity,
         pointerEvents = "auto",
         onTap = function(event, widget)
-            onBuy(widget)
-        end,
-        onLongPressStart = function(event)
-            Tooltip.Show(function()
-                local afford = GameState.coins >= u.baseCost
-                local extraText = nil
-                if u.needClicks then
-                    extraText = "需要: " .. u.needClicks .. " 次点击"
-                elseif u.needLuckyClicks then
-                    extraText = "需要: 点击 " .. u.needLuckyClicks .. " 次幸运金币"
-                elseif u.needCursor then
-                    extraText = "需要: " .. u.needCursor .. " 个临时工"
+            if canAfford then
+                onBuy(widget)
+            else
+                local tooltipFn = function()
+                    local extraText = nil
+                    if u.needClicks then
+                        extraText = "需要: " .. u.needClicks .. " 次点击"
+                    elseif u.needLuckyClicks then
+                        extraText = "需要: 点击 " .. u.needLuckyClicks .. " 次幸运金币"
+                    elseif u.needCursor then
+                        extraText = "需要: " .. u.needCursor .. " 个临时工"
+                    end
+                    return {
+                        icon = u.icon,
+                        iconImage = u.iconImage,
+                        title = u.name,
+                        cost = u.baseCost,
+                        desc = u.desc,
+                        extra = extraText,
+                        action = "金币不足。",
+                        actionColor = "red",
+                    }
                 end
-                return {
-                    icon = u.icon,
-                    iconImage = u.iconImage,
-                    title = u.name,
-                    cost = u.baseCost,
-                    desc = u.desc,
-                    extra = extraText,
-                    action = afford and "点击购买。" or "金币不足。",
-                    actionColor = afford and "green" or "red",
-                }
-            end, event.y)
+                Tooltip.Toggle("cu_" .. index, tooltipFn, event.y)
+            end
         end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event)
-            Tooltip.Show(function()
-                local afford = GameState.coins >= u.baseCost
-                local extraText = nil
-                if u.needClicks then
-                    extraText = "需要: " .. u.needClicks .. " 次点击"
-                elseif u.needLuckyClicks then
-                    extraText = "需要: 点击 " .. u.needLuckyClicks .. " 次幸运金币"
-                elseif u.needCursor then
-                    extraText = "需要: " .. u.needCursor .. " 个临时工"
-                end
-                return {
-                    icon = u.icon,
-                    iconImage = u.iconImage,
-                    title = u.name,
-                    cost = u.baseCost,
-                    desc = u.desc,
-                    extra = extraText,
-                    action = afford and "点击购买。" or "金币不足。",
-                    actionColor = afford and "green" or "red",
-                }
-            end, event.y)
-        end,
-        onPointerLeave = function() Tooltip.Hide() end,
         children = {
             UI.Panel { width = 28, height = 28, backgroundImage = u.iconImage, backgroundFit = "contain" },
         },
@@ -683,10 +598,6 @@ local function CreateSpecialBuildingItem(item, buildingIndex, cfg)
                 callbacks_[cbName]()
             end
         end,
-        onLongPressStart = function(event) Tooltip.Show(tooltipFn, event.y) end,
-        onLongPressEnd = function() Tooltip.Hide() end,
-        onPointerEnter = function(event) Tooltip.Show(tooltipFn, event.y) end,
-        onPointerLeave = function() Tooltip.Hide() end,
         children = {
             UI.Panel {
                 width = 36, height = 36,

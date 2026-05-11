@@ -68,7 +68,19 @@ function SM.Init()
     -- 检查自然季节
     SM.CheckNaturalSeason()
 
-    SaveBridge.Register("seasons", SM.GetState, SM.SetState)
+    SaveBridge.Register("seasons", SM.GetState, SM.SetState, function()
+        activeSeason_ = SD.SEASON_NONE
+        manualTimer_ = 0
+        collected_ = {}
+        santaLevel_ = 0
+        unlockedXmasUpgrades_ = {}
+        reindeerTimer_ = 200 + math.random() * 160
+        reindeerActive_ = false
+        reindeerStayTimer_ = 0
+        switchCount_ = 0
+        centuryEggTime_ = 0
+        SM.CheckNaturalSeason()
+    end)
 end
 
 -- ============================================================================

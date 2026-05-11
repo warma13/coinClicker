@@ -146,7 +146,9 @@ function SM.Init()
         loanStates_[i] = { active = false, boostRemaining = 0, penaltyRemaining = 0 }
     end
 
-    SaveBridge.Register("stockmarket", SM.GetSaveData, SM.LoadSaveData)
+    SaveBridge.Register("stockmarket", SM.GetSaveData, SM.LoadSaveData, function()
+        SM.Init()  -- Init 已完整重置所有状态
+    end)
 end
 
 -- ---------------------------------------------------------------------------

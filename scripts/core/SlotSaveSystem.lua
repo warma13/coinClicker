@@ -9,6 +9,7 @@
 -- cjson 是引擎内置全局模块（JSON 编解码）
 
 local SaveBridge = require("core.SaveBridge")
+local AntiCheatManager = require("core.AntiCheatManager")
 
 local SSS = {}
 
@@ -16,13 +17,13 @@ local SSS = {}
 -- 常量
 -- ---------------------------------------------------------------------------
 
-local SLOT_ID        = 1       -- 单槽位，固定为 1
+local SLOT_ID        = 1       -- 当前槽位号（可由反作弊切换）
 local SAVE_INTERVAL  = 30      -- 自动保存间隔（秒）
 local DIRTY_DELAY    = 2       -- MarkDirty 延迟合并（秒）
 local CHUNK_SIZE     = 9000    -- 单分片最大字节数（预留 key 开销）
 local MAX_RETRY      = 3       -- 云端保存最大重试次数
 local RETRY_BASE     = 3       -- 重试基础间隔（秒），指数退避 3^n
-local LOCAL_FILE     = "save_slot1.json"
+local LOCAL_FILE_FMT = "save_slot%d.json"   -- 按 SLOT_ID 格式化
 local SAVE_TIMEOUT   = 15      -- 云端保存超时（秒）
 local FAIL_WARN_AT   = 3       -- 连续失败 N 次显示警告
 local FAIL_PAUSE_AT  = 6       -- 连续失败 N 次暂停自动保存
@@ -43,6 +44,7 @@ local dirtyTimer_     = -1      -- MarkDirty 延迟倒计时（< 0 表示无脏�
 local retryTimer_     = -1      -- 云端重试倒计时
 local retryCount_     = 0
 local pendingSave_    = false   -- 是否有待发送的保存（saving_ 期间有新请求）
+local pendingSaveCallback_ = nil -- 挂起保存的完成回调
 local headCache_      = nil     -- 最近一次写入的 head（用于清理旧分片）
 local saving_         = false   -- 防止并发保存
 local loading_        = false
@@ -147,6 +149,10 @@ end
 -- 云端 Key 命名
 -- ============================================================================
 
+local function LocalFile()
+    return string.format(LOCAL_FILE_FMT, SLOT_ID)
+end
+
 local function HeadKey()
     return "s_" .. SLOT_ID .. "_head"
 end
@@ -174,7 +180,7 @@ local function SaveLocal(saveData)
     end
     local checksum = CalcChecksum(json)
     local header = #json .. ":" .. checksum .. "\n"
-    local file = File(LOCAL_FILE, FILE_WRITE)
+    local file = File(LocalFile(), FILE_WRITE)
     if file:IsOpen() then
         file:WriteString(header .. json)
         file:Close()
@@ -187,8 +193,8 @@ end
 --- 同步读取本地文件（校验长度+DJB2）
 ---@return table|nil
 local function LoadLocal()
-    if not fileSystem:FileExists(LOCAL_FILE) then return nil end
-    local file = File(LOCAL_FILE, FILE_READ)
+    if not fileSystem:FileExists(LocalFile()) then return nil end
+    local file = File(LocalFile(), FILE_READ)
     if not file:IsOpen() then return nil end
     local raw = file:ReadString()
     file:Close()
@@ -509,36 +515,24 @@ end
 -- 公共 API
 -- ============================================================================
 
---- 初始化存档系统（启动时调用一次）
+--- 内部：加载存档并完成初始化（SLOT_ID 已确定后调用）
 ---@param onComplete fun(ok: boolean, offlineTime: number)|nil
-function SSS.Init(onComplete)
-    if initialized_ then
-        if onComplete then onComplete(true, 0) end
-        return
-    end
-
-    loading_ = true
-    print("[SaveSystem] 初始化...")
-
+local function DoLoadAndInit(onComplete)
     LoadFromCloud(function(saveData, err)
         loading_ = false
-
         if saveData then
             SaveBridge.Deserialize(saveData)
-
             local offlineTime = 0
             if saveData.timestamp then
                 offlineTime = os.time() - saveData.timestamp
                 if offlineTime < 0 then offlineTime = 0 end
             end
-
             SaveLocal(saveData)
-
             saveConfirmed_ = true
             initialized_   = true
             autoSaveTimer_ = SAVE_INTERVAL
-
-            print("[SaveSystem] 云端存档加载成功 | 离线: " .. offlineTime .. "秒")
+            print("[SaveSystem] 云端存档加载成功 (slot=" .. SLOT_ID .. ") | 离线: " .. offlineTime .. "秒")
+            AntiCheatManager.Init()
             if onComplete then onComplete(true, offlineTime) end
         else
             local localData = LoadLocal()
@@ -551,7 +545,7 @@ function SSS.Init(onComplete)
                 autoSaveTimer_ = SAVE_INTERVAL
                 if onComplete then onComplete(true, 0) end
             else
-                print("[SaveSystem] 新玩家，无存档数据")
+                print("[SaveSystem] 新玩家，无存档数据 (slot=" .. SLOT_ID .. ")")
                 saveConfirmed_ = true
                 initialized_   = true
                 autoSaveTimer_ = SAVE_INTERVAL
@@ -561,17 +555,59 @@ function SSS.Init(onComplete)
     end)
 end
 
+--- 初始化存档系统（启动时调用一次）
+---@param onComplete fun(ok: boolean, offlineTime: number)|nil
+function SSS.Init(onComplete)
+    if initialized_ then
+        if onComplete then onComplete(true, 0) end
+        return
+    end
+
+    loading_ = true
+    print("[SaveSystem] 初始化...")
+
+    -- 先从云端读取当前槽位号
+    if clientCloud then
+        clientCloud:BatchGet()
+            :Key("ac_slot_id")
+            :Fetch({
+                ok = function(values, iscores)
+                    local slotId = iscores.ac_slot_id
+                    if slotId and slotId > 0 then
+                        SLOT_ID = slotId
+                        print("[SaveSystem] 当前槽位: " .. SLOT_ID)
+                    else
+                        print("[SaveSystem] 首次登录，使用默认槽位 1")
+                    end
+                    DoLoadAndInit(onComplete)
+                end,
+                error = function(code, reason)
+                    print("[SaveSystem] 读取槽位号失败: " .. tostring(reason) .. ", 使用默认槽位 1")
+                    DoLoadAndInit(onComplete)
+                end,
+            })
+    else
+        DoLoadAndInit(onComplete)
+    end
+end
+
 --- 常规保存（序列化 → 消毒 → 本地 → 云端）
-function SSS.Save()
+---@param onComplete fun(ok: boolean)|nil  云端保存完成回调
+function SSS.Save(onComplete)
     if not saveConfirmed_ or saving_ then
         if saving_ then
             -- 保存进行中，标记 pendingSave，完成后用最新数据重发
             pendingSave_ = true
+            pendingSaveCallback_ = onComplete
         end
         return
     end
     saving_ = true
     pendingSave_ = false
+    pendingSaveCallback_ = nil
+
+    -- 反作弊：存档时检测会话内时钟漂移
+    AntiCheatManager.CheckDrift()
 
     local saveData = SaveBridge.Serialize()
 
@@ -587,12 +623,16 @@ function SSS.Save()
         if ok then
             retryCount_ = 0
             retryTimer_ = -1
+            if onComplete then onComplete(true) end
             -- 检查是否有挂起的保存请求
             if pendingSave_ then
                 pendingSave_ = false
-                SSS.Save()  -- 用最新数据重发
+                local cb = pendingSaveCallback_
+                pendingSaveCallback_ = nil
+                SSS.Save(cb)  -- 用最新数据重发
             end
         else
+            if onComplete then onComplete(false) end
             -- 安排重试（用最新数据）
             retryCount_ = 0
             retryTimer_ = RETRY_BASE
@@ -605,15 +645,17 @@ function SSS.Save()
 end
 
 --- 立即保存（关键事件后调用：飞升、重大购买等）
-function SSS.SaveNow()
+---@param onComplete fun(ok: boolean)|nil  云端保存完成回调
+function SSS.SaveNow(onComplete)
     if not saveConfirmed_ then return end
     autoSaveTimer_ = SAVE_INTERVAL
     dirtyTimer_    = -1
     if saving_ then
         pendingSave_ = true  -- 进行中则挂起，完成后用最新数据重发
+        pendingSaveCallback_ = onComplete
         return
     end
-    SSS.Save()
+    SSS.Save(onComplete)
 end
 
 --- 标记脏数据（延迟 DIRTY_DELAY 秒后合并为一次 Save）
@@ -742,6 +784,102 @@ end
 ---@param fn fun()
 function SSS.OnSaved(fn)
     onSavedCallback_ = fn
+end
+
+--- 当前槽位号
+---@return number
+function SSS.GetSlotId()
+    return SLOT_ID
+end
+
+-- ============================================================================
+-- 反作弊：切换到新槽位（旧存档保留，以新玩家身份开始）
+-- ============================================================================
+
+--- 切换到新槽位并重置游戏状态
+---@param onDone fun()|nil  切换完成后的回调
+function SSS.SwitchToNewSlot(onDone)
+    local oldSlot = SLOT_ID
+    local newSlot = SLOT_ID + 1
+    print("[SaveSystem] 反作弊切换槽位: " .. oldSlot .. " → " .. newSlot)
+
+    -- 1. 切换槽位号
+    SLOT_ID = newSlot
+
+    -- 2. 使所有进行中的异步回调失效
+    saveGeneration_ = saveGeneration_ + 1
+    loadGeneration_ = loadGeneration_ + 1
+
+    -- 3. 重置存档系统内部状态
+    saveSeq_          = 0
+    confirmedSeq_     = 0
+    playTime_         = 0
+    autoSaveTimer_    = SAVE_INTERVAL
+    dirtyTimer_       = -1
+    retryTimer_       = -1
+    retryCount_       = 0
+    pendingSave_      = false
+    headCache_        = nil
+    saving_           = false
+    loading_          = false
+    saveTimeoutTimer_ = -1
+    consecutiveFails_ = 0
+    savePaused_       = false
+    warningShown_     = false
+    saveConfirmed_    = true
+
+    -- 4. 重置游戏状态为真正的新玩家（所有管理器归零，无飞升加成）
+    SaveBridge.ResetAll()
+
+    -- 5. 序列化新玩家数据并保存到本地
+    local saveData = SaveBridge.Serialize()
+    saveData = SanitizeTable(saveData)
+    SaveLocal(saveData)
+
+    -- 6. 将新槽位号 + 新存档一起写入云端
+    --    ac_slot_id 用 SetInt 持久化，确保下次登录读取到新槽位
+    local batch = clientCloud:BatchSet()
+    batch:SetInt("ac_slot_id", newSlot)
+
+    -- 同时写入新槽位的存档数据
+    local groups, version, timestamp = SaveBridge.SplitIntoGroups(saveData)
+    local headData = {
+        format    = 1,
+        version   = version,
+        timestamp = timestamp,
+        slotId    = newSlot,
+        saveSeq   = 0,
+        keys      = {},
+    }
+    for groupName, groupData in pairs(groups) do
+        if groupData then
+            local chunks, checksums, totalLen = EncodeGroup(groupData)
+            if #chunks == 1 then
+                headData.keys[groupName] = { cs = checksums[1], len = totalLen }
+                batch:Set(GroupKey(groupName), groupData)
+            else
+                headData.keys[groupName] = { chunks = #chunks, cs = checksums, len = {} }
+                for ci, chunk in ipairs(chunks) do
+                    headData.keys[groupName].len[ci] = #chunk
+                    batch:Set(ChunkKey(groupName, ci - 1), chunk)
+                end
+            end
+        end
+    end
+    batch:Set(HeadKey(), headData)
+    headCache_ = headData
+
+    batch:Save("anti_cheat_slot_switch", {
+        ok = function()
+            print("[SaveSystem] 新槽位存档已保存到云端 (slot=" .. newSlot .. ")")
+            if onDone then onDone() end
+        end,
+        error = function(code, reason)
+            print("[SaveSystem] 新槽位云端保存失败: " .. tostring(reason))
+            -- 本地已保存，下次自动保存会重试云端
+            if onDone then onDone() end
+        end,
+    })
 end
 
 return SSS

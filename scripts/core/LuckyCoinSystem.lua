@@ -261,6 +261,7 @@ end
 local function RecalcBuffMultipliers()
     local S = GameState
     S.buffBuildingCostMul = 1
+    local buffLuckyFreqMul = 1
 
     local cpsPool = MultiplierPool.New()
     local cpcPool = MultiplierPool.New()
@@ -272,6 +273,8 @@ local function RecalcBuffMultipliers()
             cpcPool:Add(b.multiplierVal)        -- 1+x 格式，加算合并
         elseif b.multiplierKey == "buildingCost" then
             S.buffBuildingCostMul = S.buffBuildingCostMul * b.multiplierVal
+        elseif b.multiplierKey == "luckyFreq" then
+            buffLuckyFreqMul = buffLuckyFreqMul * b.multiplierVal
         end
     end
 
@@ -280,6 +283,7 @@ local function RecalcBuffMultipliers()
 
     S.buffCpsMul = cpsPool:Result()
     S.buffCpcMul = cpcPool:Result()
+    S.buffLuckyFreqMul = buffLuckyFreqMul
 end
 
 --- 应用愤怒金币效果
@@ -428,7 +432,7 @@ function M.TriggerEffect()
             local dfBuff = {
                 id = "dragonflight",
                 name = "Dragonflight",
-                icon = "龙",
+                icon = "AI",
                 color = { 255, 180, 60, 255 },
                 remaining = DD.DRAGONFLIGHT_DUR,
                 duration = DD.DRAGONFLIGHT_DUR,
@@ -447,7 +451,7 @@ function M.TriggerEffect()
                 S.activeBuffs[#S.activeBuffs + 1] = dfBuff
             end
             if ctx_.ui.floatingText then
-                ctx_.ui.floatingText.Show("龙 Dragonflight!", S.luckyPosX, S.luckyPosY - 30, { 255, 180, 60, 255 })
+                ctx_.ui.floatingText.Show("K1 量化风暴!", S.luckyPosX, S.luckyPosY - 30, { 255, 180, 60, 255 })
             end
         end
     end
@@ -457,7 +461,7 @@ function M.TriggerEffect()
 
     HideLuckyCoin()
     local baseInterval = S.luckyMinInterval + math.random() * (S.luckyMaxInterval - S.luckyMinInterval)
-    S.luckyTimer = baseInterval / S.luckyFreqMul
+    S.luckyTimer = baseInterval / (S.luckyFreqMul * (S.buffLuckyFreqMul or 1))
 
     SlotSaveSystem.MarkDirty()
 end
@@ -502,7 +506,7 @@ function M.UpdateLuckyCoin(dt)
             print("[Lucky Coin] 幸运金币消失（未被点击）")
             HideLuckyCoin()
             local baseInterval = S.luckyMinInterval + math.random() * (S.luckyMaxInterval - S.luckyMinInterval)
-            S.luckyTimer = baseInterval / S.luckyFreqMul
+            S.luckyTimer = baseInterval / (S.luckyFreqMul * (S.buffLuckyFreqMul or 1))
         elseif ctx_.ui.luckyCoin then
             ctx_.ui.luckyCoin.UpdateAnimation(dt)
         end

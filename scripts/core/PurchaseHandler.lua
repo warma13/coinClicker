@@ -14,6 +14,7 @@ local AchievementManager = require("core.AchievementManager")
 local SeasonManager = require("core.SeasonManager")
 local PantheonManager = require("core.PantheonManager")
 local GrimoireManager = require("core.GrimoireManager")
+local SkillManager = require("core.SkillManager")
 local M = {}
 
 --- 注册所有购买相关函数到 GM 表上
@@ -22,10 +23,21 @@ local M = {}
 function M.Setup(GM, ctx)
 
     --- 点击金币
-    ---@param x number 点击 x 坐标
-    ---@param y number 点击 y 坐标
+    ---@param x number 点击 x 坐标（UI 基准像素）
+    ---@param y number 点击 y 坐标（UI 基准像素）
     function GM.OnCoinClick(x, y)
         local S = GameState
+
+        -- UI 基准像素 → NanoVG 逻辑像素坐标转换
+        -- UI event 坐标 = 物理像素 / UI.scale
+        -- NanoVG 坐标   = 物理像素 / dpr
+        -- 因此 NanoVG坐标 = UI坐标 × (UI.scale / dpr)
+        local UI = require("urhox-libs/UI")
+        local uiScale = UI.GetScale() or 1
+        local dpr = graphics:GetDPR()
+        local scaleFactor = uiScale / dpr
+        if x then x = x * scaleFactor end
+        if y then y = y * scaleFactor end
 
         -- 点击频率限制: 最多 15 CPS（对齐 Cookie Clicker）
         local now = time.elapsedTime
@@ -35,7 +47,8 @@ function M.Setup(GM, ctx)
         S.lastClickTime = now
 
         S.totalClicks = S.totalClicks + 1
-        local gain = S.coinsPerClick * S.buffCpcMul
+        local clickSkillMul = SkillManager.GetClickMultiplier()
+        local gain = S.coinsPerClick * S.buffCpcMul * clickSkillMul
 
         S.coins = S.coins + gain
         S.handmadeCoins = S.handmadeCoins + gain

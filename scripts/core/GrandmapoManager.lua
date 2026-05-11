@@ -93,6 +93,17 @@ function GM.Init()
         function(d)
             GM.LoadSaveData(d and d.gm)
             WrinklerMgr.LoadSaveData(d and d.wm)
+        end,
+        function()
+            phase_ = GD.PHASE_NONE
+            researchBought_ = {}
+            researchUnlocked_ = {}
+            researchTimer_ = 0
+            pledgeActive_ = false
+            pledgeTimer_ = 0
+            pledgePurchases_ = 0
+            hasSacrificialPins_ = false
+            WrinklerMgr.Init()
         end
     )
 end

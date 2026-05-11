@@ -42,7 +42,8 @@ local registryOrder_ = {}
 ---@param name string          分组名（如 "achievements", "dragon"）
 ---@param serializeFn function  返回该组存档数据的函数
 ---@param deserializeFn function 接受存档数据并恢复状态的函数
-function SB.Register(name, serializeFn, deserializeFn)
+---@param resetFn function|nil  将该模块完全重置为新玩家状态的函数（可选）
+function SB.Register(name, serializeFn, deserializeFn, resetFn)
     if registry_[name] then
         print("[SaveBridge] 警告: 分组 '" .. name .. "' 重复注册，覆盖旧注册")
     else
@@ -51,6 +52,7 @@ function SB.Register(name, serializeFn, deserializeFn)
     registry_[name] = {
         serialize   = serializeFn,
         deserialize = deserializeFn,
+        reset       = resetFn,
     }
 end
 
@@ -334,6 +336,7 @@ function SB.Deserialize(data)
             sk.timer  = 0
         end
         sk.cooldown = nil
+        if sk.level <= 0 then sk.level = 1 end  -- 技能默认全解锁
     end
     -- 体力离线恢复：根据离线时间自动回复
     local savedStamina = miscData.stamina or 0
@@ -372,20 +375,72 @@ function SB.Deserialize(data)
     S.settings.bgmVolume = stg.bgmVol or 0.4
     S.settings.sfxVolume = stg.sfxVol or 1.0
 
+    -- -------- 运行时派生字段重置 --------
+    S.coinsPerSecond    = 0
+    S.coinsPerClick     = 1
+    S.clickBase         = 1
+    S.cpsPercent        = 0
+    S.fingerBonus       = 0
+    S.globalCpsMul      = 1
+    S.buffCpsMul        = 1
+    S.buffCpcMul        = 1
+    S.buffLuckyFreqMul  = 1
+    S.buffBuildingCostMul = 1
+    S.luckyFreqMul      = 1
+    S.luckyStayMul      = 1
+    S.luckyDurMul       = 1
+    S.luckyActive       = false
+    S.luckyTimer        = 0
+    S.luckyLifetime     = 0
+    S.luckyFloatPhase   = 0
+    S.coinScale         = 1.0
+    S.coinScaleTarget   = 1.0
+    S.effectLabelTimer  = 0
+    S.cursorTimer       = 0
+    S.lastRefreshCoins  = -1
+    S.buffRefreshCooldown = 0
+    S.lastClickTime     = 0
+
     -- -------- 旧存档兼容：sugarLump 原先嵌套在 misc 内 --------
     if not data.sugarlump and miscData.sugarLump then
         data.sugarlump = miscData.sugarLump
     end
 
     -- -------- 注册分组：调用各 Manager 的反序列化回调 --------
-    for _, name in ipairs(registryOrder_) do
-        local entry = registry_[name]
-        if entry and entry.deserialize then
-            entry.deserialize(data[name])
+    if not data._skipRegistered then
+        for _, name in ipairs(registryOrder_) do
+            local entry = registry_[name]
+            if entry and entry.deserialize then
+                entry.deserialize(data[name])
+            end
         end
     end
 
     print("[SaveBridge] 反序列化完成")
+end
+
+--- 完全重置所有游戏状态为新玩家（反作弊惩罚用）
+--- 每个注册分组调用自注册的 reset 回调（若有），否则 fallback 到 deserialize({})
+--- inline 分组（core/buildings/upgrades 等）通过 Deserialize({}) 自动归零
+function SB.ResetAll()
+    -- 1. 重置 inline 分组（GameState + Buildings + Upgrades 等）
+    --    传空表给 Deserialize，inline 分组全部走 `or 0` / `or false` 分支归零
+    --    但跳过注册分组（由下面的 reset 回调处理）
+    SB.Deserialize({ _skipRegistered = true })
+
+    -- 2. 重置注册分组：优先使用 reset 回调，fallback 到 deserialize({})
+    for _, name in ipairs(registryOrder_) do
+        local entry = registry_[name]
+        if entry then
+            if entry.reset then
+                entry.reset()
+            elseif entry.deserialize then
+                entry.deserialize({})
+            end
+        end
+    end
+
+    print("[SaveBridge] ResetAll 完成：所有状态已重置为新玩家")
 end
 
 -- ============================================================================

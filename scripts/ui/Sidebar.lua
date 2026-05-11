@@ -20,6 +20,7 @@ local SIDEBAR_ITEMS = {
     { iconImage = "image/侧栏_AI_20260414105511.png",     label = "AI",     color = { 220, 170, 60 } },
     { iconImage = "image/侧栏_技能.png",                  label = "技能",   color = { 80, 200, 220 } },
     { iconImage = "image/侧栏_仓库_20260507142528.png",   label = "仓库",   color = { 180, 160, 100 } },
+    { iconImage = "image/侧栏_福利_20260507164855.png",   label = "福利",   color = { 255, 180, 50 } },
 }
 
 -- ============================================================================
@@ -79,6 +80,8 @@ local function IsSidebarUnlocked(index)
     if index == 8 then return true end
     -- 9: 仓库 → 始终显示
     if index == 9 then return true end
+    -- 10: 福利 → 始终显示
+    if index == 10 then return true end
 
     return true
 end
@@ -211,6 +214,7 @@ function Sidebar.CreateWidget()
                 paddingLeft = safeLeft,
                 borderColor = { 60, 55, 80, 100 },
                 pointerEvents = "auto",
+                overflow = "scroll",
                 children = (function()
                     local items = {}
                     for i, item in ipairs(SIDEBAR_ITEMS) do

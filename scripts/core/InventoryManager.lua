@@ -12,7 +12,7 @@ local IM = {}
 -- ============================================================================
 -- 常量
 -- ============================================================================
-local MAX_SLOTS     = 20   -- 固定格子数
+local MAX_SLOTS     = 40   -- 固定格子数
 local DEFAULT_STACK = 99   -- 默认最大堆叠
 
 -- ============================================================================
@@ -25,6 +25,7 @@ local slots_ = {}
 --- 回调
 local onItemUsed_  = nil   -- function(slotIndex, itemDef, effectResult)
 local onItemAdded_ = nil   -- function(itemId, count)
+local suppressNotify_ = false  -- 开箱期间抑制逐条通知
 
 
 -- ============================================================================
@@ -42,7 +43,12 @@ function IM.Init()
     -- 注册存档
     SaveBridge.Register("inventory",
         function() return IM.Serialize() end,
-        function(data) IM.Deserialize(data) end
+        function(data) IM.Deserialize(data) end,
+        function()
+            for i = 1, MAX_SLOTS do
+                slots_[i] = nil
+            end
+        end
     )
 end
 
@@ -74,7 +80,7 @@ function IM.AddItem(itemId, count)
                 slots_[i].count = slots_[i].count + add
                 count = count - add
                 if count <= 0 then
-                    if onItemAdded_ then onItemAdded_(def, origCount) end
+                    if onItemAdded_ and not suppressNotify_ then onItemAdded_(def, origCount) end
                     return true
                 end
             end
@@ -88,7 +94,7 @@ function IM.AddItem(itemId, count)
             slots_[i] = { itemId = itemId, count = add }
             count = count - add
             if count <= 0 then
-                if onItemAdded_ then onItemAdded_(def, origCount) end
+                if onItemAdded_ and not suppressNotify_ then onItemAdded_(def, origCount) end
                 return true
             end
         end
@@ -193,6 +199,25 @@ function IM.UseItem(slotIndex)
             effectDesc = "获得 " .. GameState.FormatNumber(gain) .. " 金币"
         else
             effectDesc = "当前无产出"
+        end
+
+    elseif effect.type == "random_collectible" then
+        -- 随机藏品箱 O(1)：按稀有度累积权重抽取
+        local picked = IM.RollCollectible()
+        if picked then
+            suppressNotify_ = true
+            local ok = IM.AddItem(picked, 1)
+            suppressNotify_ = false
+            if ok then
+                local d = ItemDefs.ITEM_MAP[picked]
+                local rn = ItemDefs.RARITY[d.rarity]
+                effectDesc = "开出 " .. (rn and rn.name or "") .. "·" .. d.name
+            else
+                effectDesc = "仓库已满"
+                return false, effectDesc
+            end
+        else
+            effectDesc = "没有可用的收藏品"
         end
     end
 
@@ -315,6 +340,52 @@ function IM.SortItems()
 end
 
 -- ============================================================================
+-- O(1) 收藏品抽取（按稀有度分桶，累积权重）
+-- ============================================================================
+
+-- 预构建稀有度分桶（模块加载时执行一次）
+local RARITY_WEIGHTS = { [1] = 50, [2] = 30, [3] = 15, [4] = 4, [5] = 1 }
+local rarityBuckets_ = {}   -- { [rarity] = { id1, id2, ... } }
+local cumWeights_    = {}   -- { { rarity, cumW }, ... }  排序后的累积权重
+local totalWeight_   = 0
+
+local function BuildRarityBuckets()
+    rarityBuckets_ = {}
+    cumWeights_ = {}
+    totalWeight_ = 0
+    for _, cid in ipairs(ItemDefs.COLLECTIBLE_IDS) do
+        local def = ItemDefs.ITEM_MAP[cid]
+        if def then
+            local r = def.rarity
+            if not rarityBuckets_[r] then rarityBuckets_[r] = {} end
+            rarityBuckets_[r][#rarityBuckets_[r] + 1] = cid
+        end
+    end
+    -- 构建累积权重表（最多 5 项）
+    for r = 1, 5 do
+        if rarityBuckets_[r] and #rarityBuckets_[r] > 0 then
+            totalWeight_ = totalWeight_ + RARITY_WEIGHTS[r] * #rarityBuckets_[r]
+            cumWeights_[#cumWeights_ + 1] = { rarity = r, cumW = totalWeight_ }
+        end
+    end
+end
+BuildRarityBuckets()
+
+--- O(1) 抽取一件随机收藏品
+---@return string|nil itemId
+function IM.RollCollectible()
+    if totalWeight_ <= 0 then return nil end
+    local roll = math.random(1, totalWeight_)
+    for _, entry in ipairs(cumWeights_) do
+        if roll <= entry.cumW then
+            local bucket = rarityBuckets_[entry.rarity]
+            return bucket[math.random(1, #bucket)]
+        end
+    end
+    return nil
+end
+
+-- ============================================================================
 -- 批量使用
 -- ============================================================================
 
@@ -395,6 +466,96 @@ function IM.UseItemMulti(slotIndex, useCount)
         else
             effectDesc = "当前无产出"
         end
+
+    elseif effect.type == "random_collectible" then
+        -- 藏品箱批量 O(1)：多项式分配 + 桶内随机
+        if totalWeight_ <= 0 then
+            return false, "没有可用的收藏品"
+        end
+
+        -- 1) 按权重比例将 useCount 分配到各稀有度桶（O(K), K≤5）
+        local rarityAlloc = {}   -- { [rarity] = count }
+        local remaining = useCount
+        for idx, entry in ipairs(cumWeights_) do
+            local prevCum = (idx > 1) and cumWeights_[idx - 1].cumW or 0
+            local bucketW = entry.cumW - prevCum
+            if idx == #cumWeights_ then
+                -- 最后一个桶取余数，避免浮点舍入丢失
+                rarityAlloc[entry.rarity] = remaining
+            else
+                local n = math.floor(useCount * bucketW / totalWeight_ + 0.5)
+                n = math.min(n, remaining)
+                rarityAlloc[entry.rarity] = n
+                remaining = remaining - n
+            end
+        end
+
+        -- 2) 在每个桶内均匀分配具体物品（O(K×B), K≤5, B=桶内种类数，均为常数）
+        local counts = {}  -- { [itemId] = n }
+        local opened = 0
+        for r, n in pairs(rarityAlloc) do
+            if n > 0 then
+                local bucket = rarityBuckets_[r]
+                local bLen = #bucket
+                -- 每种物品至少分 base 个，随机选 extra 种各多分 1 个
+                local base = math.floor(n / bLen)
+                local extra = n % bLen  -- extra < bLen，需从桶中选 extra 种 +1
+                -- 先给所有物品 base 个
+                for bi = 1, bLen do
+                    if base > 0 then
+                        counts[bucket[bi]] = (counts[bucket[bi]] or 0) + base
+                    end
+                end
+                -- Fisher-Yates 部分洗牌选 extra 个索引（O(extra), extra < bLen 常数级）
+                if extra > 0 then
+                    local perm = {}
+                    for bi = 1, bLen do perm[bi] = bi end
+                    for ei = 1, extra do
+                        local j = math.random(ei, bLen)
+                        perm[ei], perm[j] = perm[j], perm[ei]
+                        local id = bucket[perm[ei]]
+                        counts[id] = (counts[id] or 0) + 1
+                    end
+                end
+                opened = opened + n
+            end
+        end
+
+        -- 3) 批量添加道具（O(M), M=不同物品种类数）
+        suppressNotify_ = true
+        local added = 0
+        for id, n in pairs(counts) do
+            local ok = IM.AddItem(id, n)
+            if ok then
+                added = added + n
+            else
+                -- 仓库满，尝试逐个添加尽可能多的
+                for _ = 1, n do
+                    if IM.AddItem(id, 1) then
+                        added = added + 1
+                    else
+                        break
+                    end
+                end
+            end
+        end
+        suppressNotify_ = false
+
+        if added > 0 then
+            local parts = {}
+            for id, n in pairs(counts) do
+                local d = ItemDefs.ITEM_MAP[id]
+                parts[#parts + 1] = d.name .. (n > 1 and ("x" .. n) or "")
+            end
+            effectDesc = "开出 " .. added .. " 件: " .. table.concat(parts, " ")
+        else
+            return false, "仓库已满"
+        end
+        IM.RemoveItem(slotIndex, added)
+        if onItemUsed_ then
+            onItemUsed_(slotIndex, def, effectDesc)
+        end
+        return true, effectDesc
     end
 
     -- 消耗道具
@@ -426,34 +587,38 @@ function IM.GetCollectibleBonuses()
         ownedIds       = {},  -- 已拥有的收藏品 ID 集合
     }
 
-    -- 统计每件收藏品的被动
+    -- 统计每件收藏品的被动（数量越多效果越强）
     for _, cid in ipairs(ItemDefs.COLLECTIBLE_IDS) do
-        if IM.HasItem(cid) then
+        local cnt = IM.GetItemCount(cid)
+        if cnt > 0 then
             result.ownedCount = result.ownedCount + 1
             result.ownedIds[cid] = true
             local def = ItemDefs.ITEM_MAP[cid]
             if def and def.passive then
                 local p = def.passive
+                local val = p.value * cnt  -- 按持有数量叠加
                 if p.type == "cps_percent" then
-                    result.cps_percent = result.cps_percent + p.value
+                    result.cps_percent = result.cps_percent + val
                 elseif p.type == "cpc_percent" then
-                    result.cpc_percent = result.cpc_percent + p.value
+                    result.cpc_percent = result.cpc_percent + val
                 elseif p.type == "lucky_freq" then
-                    result.lucky_freq = result.lucky_freq + p.value
+                    result.lucky_freq = result.lucky_freq + val
                 elseif p.type == "lucky_dur" then
-                    result.lucky_dur = result.lucky_dur + p.value
+                    result.lucky_dur = result.lucky_dur + val
+                elseif p.type == "global_percent" then
+                    result.global_percent = result.global_percent + val
                 end
             end
         end
     end
 
-    -- 套装奖励（取已达成的最高阶段，不叠加）
+    -- 套装奖励（取已达成的最高阶段，不叠加；与个体 global_percent 累加）
     for i = #ItemDefs.SET_BONUSES, 1, -1 do
         local sb = ItemDefs.SET_BONUSES[i]
         if result.ownedCount >= sb.need then
             local b = sb.bonus
             if b.type == "global_percent" then
-                result.global_percent = b.value
+                result.global_percent = result.global_percent + b.value
             end
             break
         end
@@ -468,14 +633,7 @@ end
 
 --- 飞升时重置仓库（保留收藏类道具）
 function IM.ResetForAscension()
-    for i = 1, MAX_SLOTS do
-        if slots_[i] then
-            local def = ItemDefs.ITEM_MAP[slots_[i].itemId]
-            if not def or def.category ~= "collectible" then
-                slots_[i] = nil
-            end
-        end
-    end
+    -- 飞升后保留仓库所有道具，不做清除
 end
 
 -- ============================================================================

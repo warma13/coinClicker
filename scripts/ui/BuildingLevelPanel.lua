@@ -426,8 +426,16 @@ function BLP.Refresh()
 
     if dataFP ~= lastDataFP_ then
         lastDataFP_ = dataFP
+        local prevCount = #flatData_
         RebuildFlatData()
-        virtualList_:SetData(flatData_)
+        if prevCount == #flatData_ and prevCount > 0 then
+            -- 行数不变：就地更新数据，保持滚动位置
+            virtualList_.props.data = flatData_
+            virtualList_:Refresh()
+        else
+            -- 首次加载或行数变化：完整重建
+            virtualList_:SetData(flatData_)
+        end
     end
 end
 

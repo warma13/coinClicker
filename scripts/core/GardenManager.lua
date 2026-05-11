@@ -100,7 +100,9 @@ function GM.Init()
         end
     end
 
-    SaveBridge.Register("garden", GM.GetSaveData, GM.LoadSaveData)
+    SaveBridge.Register("garden", GM.GetSaveData, GM.LoadSaveData, function()
+        GM.Init()  -- Init 已完整重置所有状态（含 discoveredSeeds_）
+    end)
 end
 
 -- ---------------------------------------------------------------------------

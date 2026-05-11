@@ -138,7 +138,13 @@ function EM.Init()
     refreshTimer_ = EC.ITEM_REFRESH_INTERVAL
     FillProducts()
 
-    SaveBridge.Register("ecommerce", EM.GetSaveData, EM.LoadSaveData)
+    SaveBridge.Register("ecommerce", EM.GetSaveData, EM.LoadSaveData, function()
+        products_ = {}
+        streak_ = 0
+        totalSold_ = 0
+        refreshTimer_ = EC.ITEM_REFRESH_INTERVAL
+        FillProducts()
+    end)
 end
 
 -- ============================================================================

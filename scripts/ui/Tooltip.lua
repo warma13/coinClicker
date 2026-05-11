@@ -11,11 +11,13 @@ local Tooltip = {}
 
 -- ======== 模块状态 ========
 local panel_ = nil       -- 提示框根面板
+local backdrop_ = nil    -- 全屏透明遮罩（点击关闭）
 local uiRoot_ = nil      -- UI 根节点
 local visible_ = false
 local TOOLTIP_W = 300     -- 提示框宽度
 local TOOLTIP_GAP = 8     -- 距离商店的间距
 local lastConfigFn_ = nil -- 上次显示时的数据生成函数（用于刷新）
+local lastToggleId_ = nil -- Toggle 用的稳定标识符
 local lastAnchorY_ = 0    -- 上次显示时的锚点 Y
 local lastAnchorX_ = nil  -- 上次显示时的锚点 X（nil 表示默认商店左侧定位）
 local lastFingerprint_ = "" -- 上次渲染时的内容指纹（避免无变化时重建）
@@ -37,21 +39,39 @@ local SEPARATOR_COLOR  = { 60, 60, 80, 150 }
 -- 创建 UI
 -- ============================================================================
 
---- 创建提示框面板（absolute 定位，初始隐藏在屏幕外）
+--- 创建提示框组件：全屏遮罩 + 提示框面板
+--- 返回一个容器，需挂在 UI 根节点下
 ---@return table UI.Panel
 function Tooltip.Create()
     return UI.Panel {
-        id = "tooltipPanel",
+        id = "tooltipContainer",
         position = "absolute",
-        width = TOOLTIP_W,
-        left = -999, top = -999,
-        backgroundColor = BG_COLOR,
-        borderRadius = 8,
-        borderWidth = 1,
-        borderColor = BORDER_COLOR,
-        padding = 10,
-        gap = 6,
-        zIndex = 9999,
+        left = 0, top = 0,
+        width = "100%", height = "100%",
+        pointerEvents = "none",    -- 隐藏时不拦截任何点击
+        zIndex = 9998,
+        -- 全屏遮罩：点击空白关闭（用 onTap 而非 onPointerDown，
+        -- 避免 pointerDown 先关闭遮罩、pointerUp 又穿透到下层触发 onTap 重新打开）
+        onTap = function()
+            Tooltip.Hide()
+        end,
+        children = {
+            -- 提示框内容
+            UI.Panel {
+                id = "tooltipPanel",
+                position = "absolute",
+                width = TOOLTIP_W,
+                left = -999, top = -999,
+                backgroundColor = BG_COLOR,
+                borderRadius = 8,
+                borderWidth = 1,
+                borderColor = BORDER_COLOR,
+                padding = 10,
+                gap = 6,
+                zIndex = 9999,
+                pointerEvents = "auto",  -- 提示框本身可点击（不穿透到容器）
+            },
+        },
     }
 end
 
@@ -60,6 +80,7 @@ end
 function Tooltip.Init(root)
     uiRoot_ = root
     panel_ = root:FindById("tooltipPanel")
+    backdrop_ = root:FindById("tooltipContainer")
 end
 
 -- ============================================================================
@@ -262,6 +283,10 @@ function Tooltip.Show(configOrFn, anchorY, anchorX)
     end
 
     panel_:SetStyle({ left = tooltipX, top = tooltipY })
+    -- 启用遮罩拦截点击
+    if backdrop_ then
+        backdrop_:SetStyle({ pointerEvents = "auto" })
+    end
     visible_ = true
     lastFingerprint_ = MakeFingerprint(config)
 end
@@ -271,8 +296,13 @@ function Tooltip.Hide()
     if not panel_ then return end
     if not visible_ then return end
     panel_:SetStyle({ left = -999, top = -999 })
+    -- 关闭遮罩拦截
+    if backdrop_ then
+        backdrop_:SetStyle({ pointerEvents = "none" })
+    end
     visible_ = false
     lastConfigFn_ = nil
+    -- 注意：不清除 lastToggleId_，让 Toggle 能识别"同一条目刚被关闭"
     lastFingerprint_ = ""
 end
 
@@ -285,6 +315,26 @@ function Tooltip.Refresh()
     local fp = MakeFingerprint(newConfig)
     if fp == lastFingerprint_ then return end  -- 数据未变，跳过重建
     Tooltip.Show(lastConfigFn_, lastAnchorY_, lastAnchorX_)
+end
+
+--- 切换显示/隐藏（同一 ID 则关闭，不同则切换显示）
+--- 配合建筑条目 onTap 使用：点一下显示，再点一下关闭，点其他条目切换
+---@param toggleId string 稳定的唯一标识（如 "bld_1"、"cu_3"）
+---@param configOrFn table|function
+---@param anchorY number
+---@param anchorX number|nil
+function Tooltip.Toggle(toggleId, configOrFn, anchorY, anchorX)
+    if lastToggleId_ == toggleId then
+        -- 同一条目：正在显示 → 关闭；刚被关闭（backdrop 先 Hide 了）→ 不重开
+        if visible_ then
+            Tooltip.Hide()
+        end
+        lastToggleId_ = nil
+        return
+    end
+    -- 不同条目或无上次记录 → 显示
+    lastToggleId_ = toggleId
+    Tooltip.Show(configOrFn, anchorY, anchorX)
 end
 
 --- 当前是否可见

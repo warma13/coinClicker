@@ -117,7 +117,14 @@ end
 function SM.Init()
     GeneratePendingCargos()
 
-    SaveBridge.Register("shipment", SM.GetSaveData, SM.LoadSaveData)
+    SaveBridge.Register("shipment", SM.GetSaveData, SM.LoadSaveData, function()
+        pendingCargos_ = {}
+        inTransit_ = {}
+        safeStreak_ = 0
+        totalShipped_ = 0
+        refreshTimer_ = 0
+        GeneratePendingCargos()
+    end)
 end
 
 function SM.Update(dt)

@@ -57,7 +57,17 @@ function SLM.Init()
     end
 
     -- 自注册存档分组（独立顶层 key）
-    SaveBridge.Register("sugarlump", SLM.GetSaveData, SLM.LoadSaveData)
+    SaveBridge.Register("sugarlump", SLM.GetSaveData, SLM.LoadSaveData, function()
+        unlocked_ = false
+        lumps_ = 0
+        totalHarvested_ = 0
+        growthTimer_ = 0
+        currentType_ = nil
+        buildingLevels_ = {}
+        for i = 1, #Buildings.buildings do
+            buildingLevels_[i] = 0
+        end
+    end)
 end
 
 -- ============================================================================

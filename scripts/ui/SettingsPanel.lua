@@ -7,6 +7,7 @@ local UI = require("urhox-libs/UI")
 local GameState = require("core.GameState")
 local AudioManager = require("core.AudioManager")
 local SlotSaveSystem = require("core.SlotSaveSystem")
+local GameVersion = require("Game.GameVersion")
 
 local SP = {}
 
@@ -18,6 +19,10 @@ local isOpen_       = false
 local bgmSlider_    = nil   -- BGM 滑块引用
 local sfxSlider_    = nil   -- SFX 滑块引用
 local saveStatusLabel_ = nil -- 保存状态文字
+local redDot_          = nil -- 设置按钮红点
+local versionLabel_    = nil -- 版本检测结果标签
+local lastCheckTime_   = 0   -- 上次检测时间戳
+local CHECK_CD         = 10  -- 检测冷却（秒）
 
 -- ============================================================================
 -- 弹窗
@@ -102,6 +107,15 @@ function SP.OpenModal()
         textAlign = "center",
         width = "100%",
         height = 16,
+    }
+
+    -- 版本检测结果标签
+    versionLabel_ = UI.Label {
+        text = "当前版本: " .. GameVersion.GetVersionString(),
+        fontSize = 11,
+        fontColor = { 140, 140, 160, 180 },
+        textAlign = "center",
+        width = "100%",
     }
 
     -- 创建弹窗遮罩
@@ -239,13 +253,72 @@ function SP.OpenModal()
                                 width = "100%",
                                 onClick = function()
                                     AudioManager.PlayBtnClick()
-                                    SlotSaveSystem.SaveNow()
                                     if saveStatusLabel_ then
-                                        saveStatusLabel_:SetText("已保存!")
+                                        saveStatusLabel_:SetText("正在保存...")
+                                        saveStatusLabel_:SetStyle({ fontColor = { 180, 180, 200, 200 } })
                                     end
+                                    SlotSaveSystem.SaveNow(function(ok)
+                                        if not saveStatusLabel_ then return end
+                                        if ok then
+                                            saveStatusLabel_:SetText("已保存!")
+                                            saveStatusLabel_:SetStyle({ fontColor = { 120, 220, 120, 200 } })
+                                        else
+                                            saveStatusLabel_:SetText("保存失败，请重试")
+                                            saveStatusLabel_:SetStyle({ fontColor = { 255, 100, 100, 230 } })
+                                        end
+                                    end)
                                 end,
                             },
                             saveStatusLabel_,
+                        },
+                    },
+                    -- 分隔线
+                    UI.Panel {
+                        width = "100%", height = 1,
+                        backgroundColor = { 80, 70, 120, 60 },
+                    },
+                    -- 版本检测区
+                    UI.Panel {
+                        width = "100%",
+                        justifyContent = "center",
+                        alignItems = "center",
+                        flexDirection = "column",
+                        gap = 6,
+                        children = {
+                            UI.Button {
+                                text = "检测新版本",
+                                variant = "default",
+                                width = "100%",
+                                onClick = function()
+                                    AudioManager.PlayBtnClick()
+                                    local now = time.elapsedTime
+                                    local inCD = now - lastCheckTime_ < CHECK_CD
+                                    local function ShowResult(hasNew, latestStr)
+                                        if not versionLabel_ then return end
+                                        if hasNew then
+                                            versionLabel_:SetText("发现新版本 " .. latestStr .. " ! 请更新")
+                                            versionLabel_:SetStyle({ fontColor = { 255, 180, 80, 255 } })
+                                        else
+                                            versionLabel_:SetText("已是最新版本 " .. GameVersion.GetVersionString())
+                                            versionLabel_:SetStyle({ fontColor = { 120, 220, 120, 200 } })
+                                        end
+                                        SP.RefreshRedDot()
+                                    end
+                                    if inCD then
+                                        ShowResult(GameVersion.HasNewVersion(), GameVersion.GetLatestVersionString() or GameVersion.GetVersionString())
+                                        return
+                                    end
+                                    lastCheckTime_ = now
+                                    if versionLabel_ then
+                                        versionLabel_:SetText("检测中...")
+                                        versionLabel_:SetStyle({ fontColor = { 180, 180, 200, 200 } })
+                                    end
+                                    GameVersion.CheckNow(function(hasNew, latestStr)
+                                        ShowResult(hasNew, latestStr)
+                                    end)
+                                end,
+                            },
+                            versionLabel_,
                         },
                     },
                 },
@@ -264,6 +337,17 @@ end
 --- 创建设置按钮（absolute 定位，排行榜按钮左侧）
 ---@return table button
 function SP.Create()
+    -- 红点
+    redDot_ = UI.Panel {
+        position = "absolute",
+        right = -3, top = -3,
+        width = 8, height = 8,
+        borderRadius = 4,
+        backgroundColor = { 255, 60, 60, 255 },
+        pointerEvents = "none",
+        visible = GameVersion.HasNewVersion(),
+    }
+
     btnWidget_ = UI.Panel {
         id = "settingsBtn",
         position = "absolute",
@@ -289,15 +373,28 @@ function SP.Create()
                 fontColor = { 255, 220, 80, 255 },
                 fontWeight = "bold",
             },
+            redDot_,
         },
     }
     return btnWidget_
+end
+
+--- 刷新红点显示
+function SP.RefreshRedDot()
+    if redDot_ then
+        redDot_:SetStyle({ visible = GameVersion.HasNewVersion() })
+    end
 end
 
 --- 初始化
 ---@param root table UI 根节点
 function SP.Init(root)
     uiRoot_ = root
+
+    -- 注册新版本回调，自动刷新红点
+    GameVersion.OnNewVersion(function()
+        SP.RefreshRedDot()
+    end)
 end
 
 return SP

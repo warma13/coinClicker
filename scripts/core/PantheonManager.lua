@@ -34,7 +34,10 @@ function PM.Init()
     slotSpirits_ = { nil, nil, nil }
     slotCooldowns_ = { 0, 0, 0 }
 
-    SaveBridge.Register("pantheon", PM.GetSaveData, PM.LoadSaveData)
+    SaveBridge.Register("pantheon", PM.GetSaveData, PM.LoadSaveData, function()
+        slotSpirits_ = { nil, nil, nil }
+        slotCooldowns_ = { 0, 0, 0 }
+    end)
 end
 
 -- ---------------------------------------------------------------------------
